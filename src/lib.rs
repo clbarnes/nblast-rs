@@ -57,6 +57,8 @@ impl DotProps {
         Ok(Self { rtree, tangents })
     }
 
+    /// For a given point and tangent vector,
+    /// get the distance to its nearest neighbor and dot product with that neighbor's tangent
     pub fn nearest_match_dist_dot(
         &self,
         point: &[Precision; 3],
@@ -72,7 +74,10 @@ impl DotProps {
         }
     }
 
-    /// Arbitrary order
+    /// For every segment in self, find the nearest segment in target,
+    /// and return the distance and dot product of the points and tangents respectively.
+    ///
+    /// Return order is arbitrary
     pub fn query_target_dist_dots(&self, target: &Self) -> Vec<DistDot> {
         let mut out: Vec<DistDot> = Vec::with_capacity(self.rtree.size());
 
@@ -86,6 +91,7 @@ impl DotProps {
         out
     }
 
+    /// Get the raw NBLAST score for this pair of neuron dotprops.
     pub fn query_target<F>(&self, target: &Self, score_fn: &F) -> Precision
     where
         F: Fn(&DistDot) -> Precision,
@@ -99,6 +105,7 @@ impl DotProps {
         out
     }
 
+    /// Get the raw NBLAST scores for this neuron with every one of the given targets.
     pub fn query_targets<F>(&self, targets: &[&Self], score_fn: &F) -> Vec<Precision>
     where
         F: Fn(&DistDot) -> Precision,
@@ -109,8 +116,29 @@ impl DotProps {
             .map(|t| self.query_target(&t, score_fn))
             .collect()
     }
+
+    /// Get the raw NBLAST score of this neuron with itself, for normalisation.
+    pub fn self_hit<F>(&self, score_fn: &F) -> Precision
+    where
+        F: Fn(&DistDot) -> Precision,
+    {
+        // inefficient but consistent
+        // self.query_target(self, score_fn)
+
+        // avoids rtree lookups and dot product
+        let mut total: Precision = 0.0;
+        for tangent in self.tangents.iter() {
+            let dd = DistDot {
+                dist: 0.0,
+                dot: tangent.norm().powf(2.0),
+            };
+            total += score_fn(&dd);
+        }
+        total
+    }
 }
 
+/// For slice of (query, targets[]) pairs, find all the raw NBLAST scores.
 pub fn queries_targets<F>(
     qs_ts: &[(&DotProps, Vec<&DotProps>)],
     score_fn: &F,
@@ -124,6 +152,8 @@ where
         .collect()
 }
 
+/// Given the upper bounds of a number of bins, find which bin the value falls into.
+/// Values outside of the range fall into the bottom and top bin.
 fn find_bin(value: Precision, upper_bounds: &[Precision]) -> usize {
     let mut out = 0;
 
@@ -137,7 +167,10 @@ fn find_bin(value: Precision, upper_bounds: &[Precision]) -> usize {
     out - 1
 }
 
-/// Cells in dot-major order
+/// Convert an empirically-derived table of NBLAST scores to a function
+/// which can be passed to dotprop queries.
+///
+/// Cells are passed in dot-major order
 /// i.e. if the original table had distance bins in the left margin
 /// and dot product bins on the top margin,
 /// the cells should be given in row-major order.
