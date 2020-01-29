@@ -1,6 +1,7 @@
 use nalgebra::base::{Matrix3x6, Vector3};
 use rstar::primitives::PointWithData;
 use rstar::RTree;
+use std::collections::HashMap;
 
 const N_NEIGHBORS: usize = 5;
 type Precision = f64;
@@ -17,6 +18,8 @@ pub struct DotProps {
 }
 
 // TODO: check orientation of matrices, may need to transpose everything
+// TODO: consider using nalgebra's Point3 in PointWithIndex, for consistency
+// TODO: replace Precision with float generic
 
 impl DotProps {
     pub fn new(points: &[[Precision; 3]]) -> Result<Self, &'static str> {
@@ -196,6 +199,139 @@ pub fn table_to_fn(
     }
 }
 
+pub struct NblastArena<F>
+where
+    F: Fn(&DistDot) -> Precision,
+{
+    dotprops_scores: Vec<(DotProps, Precision)>,
+    score_fn: F,
+}
+
+type DotPropIdx = usize;
+
+/// TODO: caching strategy
+impl<F> NblastArena<F>
+where
+    F: Fn(&DistDot) -> Precision,
+{
+    pub fn new(score_fn: F) -> Self {
+        Self {
+            dotprops_scores: Vec::default(),
+            score_fn,
+        }
+    }
+
+    fn next_id(&self) -> DotPropIdx {
+        self.dotprops_scores.len()
+    }
+
+    pub fn add_dotprops(&mut self, dotprops: DotProps) -> DotPropIdx {
+        let idx = self.next_id();
+        let score = dotprops.self_hit(&self.score_fn);
+        self.dotprops_scores.push((dotprops, score));
+        idx
+    }
+
+    // TODO: Results instead of Options?
+
+    fn get_dotprops_norm_score(&self, idx: DotPropIdx) -> Option<&(DotProps, f64)> {
+        self.dotprops_scores.get(idx)
+    }
+
+    fn get_many_dotprops_norm_score(&self, idxs: &[DotPropIdx]) -> Option<Vec<&(DotProps, f64)>> {
+        let mut out = Vec::with_capacity(idxs.len());
+        for idx in idxs.iter() {
+            if let Some(dp_s) = self.get_dotprops_norm_score(*idx) {
+                out.push(dp_s)
+            } else {
+                return None;
+            }
+        }
+        Some(out)
+    }
+
+    pub fn add_points(&mut self, points: &[[Precision; 3]]) -> Result<usize, &'static str> {
+        let dotprops = DotProps::new(points)?;
+        Ok(self.add_dotprops(dotprops))
+    }
+
+    fn _query_target(
+        &self,
+        query: &(DotProps, Precision),
+        target: &(DotProps, Precision),
+        normalise: bool,
+        symmetric: bool,
+    ) -> Precision {
+        let mut score = query.0.query_target(&target.0, &self.score_fn);
+        if normalise {
+            score /= query.1;
+        }
+        if symmetric {
+            let mut score2 = target.0.query_target(&query.0, &self.score_fn);
+            if normalise {
+                score2 /= target.1;
+            }
+            score += score2;
+            score /= 2.0;
+        }
+        score
+    }
+
+    pub fn query_target(
+        &self,
+        query_idx: DotPropIdx,
+        target_idx: DotPropIdx,
+        normalise: bool,
+        symmetric: bool,
+    ) -> Option<Precision> {
+        if query_idx == target_idx {
+            if normalise {
+                Some(1.0)
+            } else {
+                self.dotprops_scores.get(query_idx).map(|pair| pair.1)
+            }
+        } else {
+            self.get_many_dotprops_norm_score(&[query_idx, target_idx])
+                .map(|a| self._query_target(a[0], a[1], normalise, symmetric))
+        }
+    }
+
+    pub fn queries_targets(
+        &self,
+        query_idxs: &[DotPropIdx],
+        target_idxs: &[DotPropIdx],
+        normalise: bool,
+        symmetric: bool,
+    ) -> Option<HashMap<(DotPropIdx, DotPropIdx), Precision>> {
+        let query_doubles = self.get_many_dotprops_norm_score(query_idxs)?;
+        let target_doubles = self.get_many_dotprops_norm_score(target_idxs)?;
+        let mut out = HashMap::with_capacity(query_idxs.len() * target_idxs.len());
+
+        for (q_idx, q) in query_idxs.iter().zip(query_doubles.iter()) {
+            for (t_idx, t) in target_idxs.iter().zip(target_doubles.iter()) {
+                if q_idx == t_idx {
+                    if normalise {
+                        out.insert((*q_idx, *q_idx), 1.0);
+                    } else {
+                        out.insert((*q_idx, *q_idx), q.1);
+                    }
+                    continue;
+                }
+
+                if symmetric && out.contains_key(&(*t_idx, *q_idx)) {
+                    continue;
+                }
+                let score = self._query_target(q, t, normalise, symmetric);
+                out.insert((*q_idx, *t_idx), *&score);
+                if symmetric {
+                    out.insert((*t_idx, *q_idx), score);
+                }
+            }
+        }
+        Some(out)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -251,5 +387,40 @@ mod tests {
             .expect("Construction failed");
 
         let score = query.query_target(&target, &score_fn);
+    }
+
+    #[test]
+    fn arena() {
+        let dist_thresholds = vec![1.0, 2.0];
+        let dot_thresholds = vec![0.5, 1.0];
+        let cells = vec![1.0, 2.0, 4.0, 8.0];
+
+        let score_fn = table_to_fn(dist_thresholds, dot_thresholds, cells);
+
+        let query = DotProps::new(&make_points(&[0., 0., 0.], &[1., 0., 0.], 10))
+            .expect("Construction failed");
+        let target = DotProps::new(&make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10))
+            .expect("Construction failed");
+
+        let mut arena = NblastArena::new(score_fn);
+        let q_idx = arena.add_dotprops(query);
+        let t_idx = arena.add_dotprops(target);
+
+        let no_norm = arena
+            .query_target(q_idx, t_idx, false, false)
+            .expect("should exist");
+        let self_hit = arena
+            .query_target(q_idx, q_idx, false, false)
+            .expect("should exist");
+        assert_eq!(
+            arena
+                .query_target(q_idx, t_idx, true, false)
+                .expect("should exist"),
+            no_norm / self_hit
+        );
+        assert_eq!(
+            arena.query_target(q_idx, t_idx, false, true),
+            arena.query_target(t_idx, q_idx, false, true),
+        );
     }
 }
