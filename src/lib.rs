@@ -131,9 +131,10 @@ impl DotProps {
         // avoids rtree lookups and dot product
         let mut total: Precision = 0.0;
         for tangent in self.tangents.iter() {
+            let norm = tangent.norm();
             let dd = DistDot {
                 dist: 0.0,
-                dot: tangent.norm().powf(2.0),
+                dot: norm * norm,
             };
             total += score_fn(&dd);
         }
