@@ -7,11 +7,13 @@ const N_NEIGHBORS: usize = 5;
 type Precision = f64;
 type PointWithIndex = PointWithData<usize, [Precision; 3]>;
 
+#[derive(Debug, Clone, Copy)]
 pub struct DistDot {
     pub dist: Precision,
     pub dot: Precision,
 }
 
+#[derive(Clone)]
 pub struct DotProps {
     rtree: RTree<PointWithIndex>,
     tangents: Vec<Vector3<Precision>>,
@@ -19,6 +21,7 @@ pub struct DotProps {
 
 // TODO: check orientation of matrices, may need to transpose everything
 // TODO: consider using nalgebra's Point3 in PointWithIndex, for consistency
+// ^ can't implement rstar::Point for nalgebra::geometry::Point3 because of orphan rules
 // TODO: replace Precision with float generic
 
 impl DotProps {
@@ -56,6 +59,25 @@ impl DotProps {
                 return Err("Failed to SVD");
             }
         }
+
+        Ok(Self { rtree, tangents })
+    }
+
+    pub fn from_points_tangents(
+        points: &[[Precision; 3]],
+        tangents: Vec<Vector3<Precision>>,
+    ) -> Result<Self, &'static str> {
+        if points.len() != tangents.len() {
+            return Err("Tangents do not match points");
+        }
+
+        let rtree = RTree::bulk_load(
+            points
+                .iter()
+                .enumerate()
+                .map(|(idx, point)| PointWithIndex::new(idx, *point))
+                .collect(),
+        );
 
         Ok(Self { rtree, tangents })
     }
@@ -387,7 +409,7 @@ mod tests {
         let target = DotProps::new(&make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10))
             .expect("Construction failed");
 
-        let score = query.query_target(&target, &score_fn);
+        let _score = query.query_target(&target, &score_fn);
     }
 
     #[test]
@@ -417,7 +439,7 @@ mod tests {
             arena
                 .query_target(q_idx, t_idx, true, false)
                 .expect("should exist"),
-            no_norm / self_hit
+            no_norm / self_hit,
         );
         assert_eq!(
             arena.query_target(q_idx, t_idx, false, true),
