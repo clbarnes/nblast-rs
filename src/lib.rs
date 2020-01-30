@@ -89,14 +89,15 @@ impl DotProps {
         point: &[Precision; 3],
         tangent: &Vector3<Precision>,
     ) -> DistDot {
-        if let Some((element, dist)) = self.rtree.nearest_neighbor_iter_with_distance(point).next()
-        {
-            let this_tangent = self.tangents[element.data];
-            let dot = this_tangent.dot(tangent).abs();
-            DistDot { dist, dot }
-        } else {
-            panic!("Impossible")
-        }
+        self.rtree
+            .nearest_neighbor_iter_with_distance(point)
+            .next()
+            .map(|(element, dist)| {
+                let this_tangent = self.tangents[element.data];
+                let dot = this_tangent.dot(tangent).abs();
+                DistDot { dist, dot }
+            })
+            .expect("impossible")
     }
 
     /// For every segment in self, find the nearest segment in target,
