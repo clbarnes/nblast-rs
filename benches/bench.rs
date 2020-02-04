@@ -63,15 +63,15 @@ fn read_points(name: &str) -> Vec<[Precision; 3]> {
 
 fn parse_interval(s: &str) -> (f64, f64) {
     let substr = &s[1..s.len() - 1];
-    let split_idx = substr.find(",").expect("no comma");
+    let split_idx = substr.find(',').expect("no comma");
     let l_r = substr.split_at(split_idx);
     let r = l_r.1.split_at(1);
     (
         l_r.0
             .parse::<f64>()
-            .expect(&format!("lower bound not float: '{}'", l_r.0)),
+            .unwrap_or_else(|_| panic!(format!("lower bound not float: '{}'", l_r.0))),
         r.1.parse::<f64>()
-            .expect(&format!("upper bound not float: '{}'", l_r.1)),
+            .unwrap_or_else(|_| panic!(format!("upper bound not float: '{}'", l_r.0))),
     )
 }
 
