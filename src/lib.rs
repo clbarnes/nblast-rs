@@ -360,6 +360,8 @@ where
 mod tests {
     use super::*;
 
+    const EPSILON: Precision = 0.001;
+
     fn add_points(a: &[f64; 3], b: &[f64; 3]) -> [f64; 3] {
         let mut out = [0., 0., 0.];
         for (idx, (x, y)) in a.iter().zip(b.iter()).enumerate() {
@@ -436,11 +438,12 @@ mod tests {
         let self_hit = arena
             .query_target(q_idx, q_idx, false, false)
             .expect("should exist");
-        assert_eq!(
+        assert!(
             arena
                 .query_target(q_idx, t_idx, true, false)
-                .expect("should exist"),
-            no_norm / self_hit,
+                .expect("should exist")
+                - no_norm / self_hit
+                < EPSILON
         );
         assert_eq!(
             arena.query_target(q_idx, t_idx, false, true),
