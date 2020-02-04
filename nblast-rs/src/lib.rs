@@ -4,7 +4,7 @@ use rstar::RTree;
 use std::collections::HashMap;
 
 const N_NEIGHBORS: usize = 5;
-type Precision = f64;
+pub type Precision = f64;
 type PointWithIndex = PointWithData<usize, [Precision; 3]>;
 
 #[derive(Debug, Clone, Copy)]
@@ -231,7 +231,7 @@ where
     score_fn: F,
 }
 
-type DotPropIdx = usize;
+pub type DotPropIdx = usize;
 
 /// TODO: caching strategy
 impl<F> NblastArena<F>
@@ -333,26 +333,36 @@ where
 
         for (q_idx, q) in query_idxs.iter().zip(query_doubles.iter()) {
             for (t_idx, t) in target_idxs.iter().zip(target_doubles.iter()) {
+                let key = (*q_idx, *t_idx);
                 if q_idx == t_idx {
-                    if normalise {
-                        out.insert((*q_idx, *q_idx), 1.0);
-                    } else {
-                        out.insert((*q_idx, *q_idx), q.1);
+                    let mut val = 1.0;
+                    if !normalise {
+                        val *= q.1;
                     }
-                    continue;
-                }
-
-                if symmetric && out.contains_key(&(*t_idx, *q_idx)) {
-                    continue;
-                }
-                let score = self._query_target(q, t, normalise, symmetric);
-                out.insert((*q_idx, *t_idx), score);
-                if symmetric {
-                    out.insert((*t_idx, *q_idx), score);
+                    out.insert(key, val);
+                } else if symmetric {
+                    out.entry((*t_idx, *q_idx))
+                        .or_insert_with(|| self._query_target(q, t, normalise, symmetric));
+                } else {
+                    let score = self._query_target(q, t, normalise, symmetric);
+                    out.insert(key, score);
                 }
             }
         }
         Some(out)
+    }
+
+    pub fn all_v_all(
+        &self,
+        normalise: bool,
+        symmetric: bool,
+    ) -> Option<HashMap<(DotPropIdx, DotPropIdx), Precision>> {
+        let idxs: Vec<DotPropIdx> = (0..self.len()).collect();
+        self.queries_targets(&idxs, &idxs, normalise, symmetric)
+    }
+
+    pub fn len(&self) -> usize {
+        self.dotprops_scores.len()
     }
 }
 

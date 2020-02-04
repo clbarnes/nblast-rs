@@ -33,7 +33,18 @@ const NAMES: [&str; 20] = [
 ];
 
 fn data_dir() -> PathBuf {
-    let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // crate dir
+    let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .canonicalize()
+        .expect("couldn't resolve");
+
+    // workspace dir
+    let has_parent = d.pop();
+
+    if !has_parent {
+        panic!("Couldn't find parent directory");
+    }
+
     d.push("data");
     d
 }
@@ -91,7 +102,11 @@ fn read_smat() -> (Vec<Precision>, Vec<Precision>, Vec<Precision>) {
 
     let mut results = reader.records();
     let first_row = results.next().expect("no first row").expect("bad parse");
-    for dot_interval_str in first_row.iter() {
+
+    // drop first (empty) column
+    let mut first_row_iter = first_row.iter();
+    first_row_iter.next();
+    for dot_interval_str in first_row_iter {
         let dot_interval = parse_interval(dot_interval_str);
         dot_tresholds.push(dot_interval.1);
     }

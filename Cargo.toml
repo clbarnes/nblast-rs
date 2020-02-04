@@ -1,31 +1,5 @@
-[package]
-name = "nblast"
-description = "Implementation of NBLAST neurite similarity algorithm"
-version = "0.1.0"
-repository = "https://github.com/clbarnes/nblast-rs"
-authors = ["Chris L. Barnes <chrislloydbarnes@gmail.com>"]
-edition = "2018"
-license-file = "LICENSE"
-readme = "README.md"
+[workspace]
 
-[badges]
-
-travis-ci = { repository = "https://github.com/clbarnes/nblast-rs", branch = "master" }
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-
-nalgebra = "0.19.0"
-rstar = "0.7.1"
-
-[dev-dependencies]
-
-bencher = "0.1.5"
-csv = "1.1"
-serde = { version = "1", features = ["derive"] }
-
-[[bench]]
-
-name = "bench"
-harness = false
+members = [
+  "nblast-rs",
+]
