@@ -346,7 +346,7 @@ where
                     continue;
                 }
                 let score = self._query_target(q, t, normalise, symmetric);
-                out.insert((*q_idx, *t_idx), *&score);
+                out.insert((*q_idx, *t_idx), score);
                 if symmetric {
                     out.insert((*t_idx, *q_idx), score);
                 }
