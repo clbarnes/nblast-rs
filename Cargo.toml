@@ -1,8 +1,16 @@
 [package]
 name = "nblast"
 version = "0.1.0"
-authors = ["Chris Barnes <>"]
+repository = "https://github.com/clbarnes/nblast-rs"
+authors = ["Chris L. Barnes <chrislloydbarnes@gmail.com>"]
 edition = "2018"
+license-file = "LICENSE"
+license = "GPL-3.0-only"
+readme = "README.md"
+
+[badges]
+
+travis-ci = { repository = "https://github.com/clbarnes/nblast-rs", branch = "master" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
