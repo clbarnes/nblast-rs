@@ -1,11 +1,11 @@
 [package]
 name = "nblast"
+description = "Implementation of NBLAST neurite similarity algorithm"
 version = "0.1.0"
 repository = "https://github.com/clbarnes/nblast-rs"
 authors = ["Chris L. Barnes <chrislloydbarnes@gmail.com>"]
 edition = "2018"
 license-file = "LICENSE"
-license = "GPL-3.0-only"
 readme = "README.md"
 
 [badges]
