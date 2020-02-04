@@ -1,0 +1,30 @@
+[package]
+authors = ["Chris L. Barnes <chrislloydbarnes@gmail.com>"]
+name = "pynblast"
+version = "0.1.0"
+description = "Python bindings for nblast-rs library"
+readme = "README.rst"
+edition = "2018"
+
+# [package.metadata.maturin.scripts]
+
+[package.metadata.maturin]
+requires-dist = []
+classifier = [
+    'Development Status :: 2 - Pre-Alpha',
+    'Intended Audience :: Developers',
+    'License :: OSI Approved :: MIT License',
+    'Natural Language :: English',
+    'Programming Language :: Python :: 3.7',
+    'Programming Language :: Python :: 3.8',
+]
+
+[dependencies]
+pyo3 = { version = "0.8.5", features = ["extension-module"] }
+nblast = { path = "../nblast-rs", version = "0.1.0" }
+
+[lib]
+name = "pynblast"
+crate-type = ["cdylib"]
+
+[workspace]
