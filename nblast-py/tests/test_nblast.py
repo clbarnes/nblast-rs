@@ -10,7 +10,6 @@ from pynblast import NblastArena, Idx
 
 
 def test_construction(score_mat_tup):
-    """Sample pytest test function with the pytest fixture as an argument."""
     NblastArena(*score_mat_tup)
 
 
@@ -41,6 +40,15 @@ def test_normed(arena_points):
     for (q, t), v in out.items():
         if q == t:
             assert v == 1
+
+
+def test_normed_calc(arena_points):
+    arena, points = arena_points
+    self_hit = arena.query_target(0, 0)
+    non_norm = arena.query_target(0, 1)
+    norm = arena.query_target(0, 1, normalise=True)
+
+    assert non_norm / self_hit == norm
 
 
 def test_symmetric(arena_points):
