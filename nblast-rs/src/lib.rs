@@ -54,6 +54,7 @@ impl DotProps {
 
             let svd = neighbor_mat.svd(false, true);
             if let Some(v_t) = svd.v_t {
+                // TODO: is this a unit vector?
                 tangents.push(Vector3::from_iterator(v_t.column(0).iter().cloned()));
             } else {
                 return Err("Failed to SVD");
@@ -359,6 +360,10 @@ where
     ) -> Option<HashMap<(DotPropIdx, DotPropIdx), Precision>> {
         let idxs: Vec<DotPropIdx> = (0..self.len()).collect();
         self.queries_targets(&idxs, &idxs, normalise, symmetric)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.dotprops_scores.is_empty()
     }
 
     pub fn len(&self) -> usize {
