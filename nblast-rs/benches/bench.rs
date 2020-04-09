@@ -7,7 +7,7 @@ use bencher::{benchmark_group, benchmark_main, Bencher};
 use csv::ReaderBuilder;
 // extern crate nblast;
 
-use nblast::{table_to_fn, DistDot, DotProps, NblastArena};
+use nblast::{table_to_fn, DistDot, PointTangents, NblastArena};
 
 const NAMES: [&str; 20] = [
     "ChaMARCM-F000586_seg002",
@@ -134,27 +134,27 @@ fn get_score_fn() -> impl Fn(&DistDot) -> Precision {
 
 fn bench_query(b: &mut Bencher) {
     let score_fn = get_score_fn();
-    let query = DotProps::new(&read_points(NAMES[0])).expect("couldn't parse");
-    let target = DotProps::new(&read_points(NAMES[1])).expect("couldn't parse");
+    let query = PointTangents::new(&read_points(NAMES[0])).expect("couldn't parse");
+    let target = PointTangents::new(&read_points(NAMES[1])).expect("couldn't parse");
 
     b.iter(|| query.query_target(&target, &score_fn))
 }
 
 fn bench_dotprop_construction(b: &mut Bencher) {
     let points = read_points(NAMES[0]);
-    b.iter(|| DotProps::new(&points).expect("couldn't parse"));
+    b.iter(|| PointTangents::new(&points).expect("couldn't parse"));
 }
 
 fn bench_arena_construction(b: &mut Bencher) {
     let score_fn = get_score_fn();
-    let dotprops: Vec<_> = NAMES
+    let pointtangents: Vec<_> = NAMES
         .iter()
-        .map(|n| DotProps::new(&read_points(n)).expect("couldn't parse"))
+        .map(|n| PointTangents::new(&read_points(n)).expect("couldn't parse"))
         .collect();
     b.iter(|| {
         let mut arena = NblastArena::new(&score_fn);
-        for dp in dotprops.iter().cloned() {
-            arena.add_dotprops(dp);
+        for dp in pointtangents.iter().cloned() {
+            arena.add_pointtangents(dp);
         }
     })
 }

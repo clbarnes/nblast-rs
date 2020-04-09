@@ -14,7 +14,7 @@ pub struct DistDot {
 }
 
 #[derive(Clone)]
-pub struct DotProps {
+pub struct PointTangents {
     rtree: RTree<PointWithIndex>,
     tangents: Vec<Vector3<Precision>>,
 }
@@ -24,7 +24,7 @@ pub struct DotProps {
 // ^ can't implement rstar::Point for nalgebra::geometry::Point3 because of orphan rules
 // TODO: replace Precision with float generic
 
-impl DotProps {
+impl PointTangents {
     pub fn new(points: &[[Precision; 3]]) -> Result<Self, &'static str> {
         if points.len() < N_NEIGHBORS + 1 {
             return Err("Not enough points");
@@ -118,7 +118,7 @@ impl DotProps {
         out
     }
 
-    /// Get the raw NBLAST score for this pair of neuron dotprops.
+    /// Get the raw NBLAST score for this pair of neuron pointtangents.
     pub fn query_target<F>(&self, target: &Self, score_fn: &F) -> Precision
     where
         F: Fn(&DistDot) -> Precision,
@@ -153,13 +153,11 @@ impl DotProps {
         // Dot product = cos(angle=0) * (norm^2=1) = 1 * 1 = 1
         score_fn(&DistDot{dist: 0.0, dot: 1.0}) * self.tangents.len() as Precision
     }
-        total
-    }
 }
 
 /// For slice of (query, targets[]) pairs, find all the raw NBLAST scores.
 pub fn queries_targets<F>(
-    qs_ts: &[(&DotProps, Vec<&DotProps>)],
+    qs_ts: &[(&PointTangents, Vec<&PointTangents>)],
     score_fn: &F,
 ) -> Vec<Vec<Precision>>
 where
@@ -219,7 +217,7 @@ pub struct NblastArena<F>
 where
     F: Fn(&DistDot) -> Precision,
 {
-    dotprops_scores: Vec<(DotProps, Precision)>,
+    pointtangents_scores: Vec<(PointTangents, Precision)>,
     score_fn: F,
 }
 
@@ -232,32 +230,32 @@ where
 {
     pub fn new(score_fn: F) -> Self {
         Self {
-            dotprops_scores: Vec::default(),
+            pointtangents_scores: Vec::default(),
             score_fn,
         }
     }
 
     fn next_id(&self) -> DotPropIdx {
-        self.dotprops_scores.len()
+        self.pointtangents_scores.len()
     }
 
-    pub fn add_dotprops(&mut self, dotprops: DotProps) -> DotPropIdx {
+    pub fn add_pointtangents(&mut self, pointtangents: PointTangents) -> DotPropIdx {
         let idx = self.next_id();
-        let score = dotprops.self_hit(&self.score_fn);
-        self.dotprops_scores.push((dotprops, score));
+        let score = pointtangents.self_hit(&self.score_fn);
+        self.pointtangents_scores.push((pointtangents, score));
         idx
     }
 
     // TODO: Results instead of Options?
 
-    fn get_dotprops_norm_score(&self, idx: DotPropIdx) -> Option<&(DotProps, f64)> {
-        self.dotprops_scores.get(idx)
+    fn get_pointtangents_norm_score(&self, idx: DotPropIdx) -> Option<&(PointTangents, f64)> {
+        self.pointtangents_scores.get(idx)
     }
 
-    fn get_many_dotprops_norm_score(&self, idxs: &[DotPropIdx]) -> Option<Vec<&(DotProps, f64)>> {
+    fn get_many_pointtangents_norm_score(&self, idxs: &[DotPropIdx]) -> Option<Vec<&(PointTangents, f64)>> {
         let mut out = Vec::with_capacity(idxs.len());
         for idx in idxs.iter() {
-            if let Some(dp_s) = self.get_dotprops_norm_score(*idx) {
+            if let Some(dp_s) = self.get_pointtangents_norm_score(*idx) {
                 out.push(dp_s)
             } else {
                 return None;
@@ -267,14 +265,14 @@ where
     }
 
     pub fn add_points(&mut self, points: &[[Precision; 3]]) -> Result<usize, &'static str> {
-        let dotprops = DotProps::new(points)?;
-        Ok(self.add_dotprops(dotprops))
+        let pointtangents = PointTangents::new(points)?;
+        Ok(self.add_pointtangents(pointtangents))
     }
 
     fn _query_target(
         &self,
-        query: &(DotProps, Precision),
-        target: &(DotProps, Precision),
+        query: &(PointTangents, Precision),
+        target: &(PointTangents, Precision),
         normalise: bool,
         symmetric: bool,
     ) -> Precision {
@@ -304,10 +302,10 @@ where
             if normalise {
                 Some(1.0)
             } else {
-                self.dotprops_scores.get(query_idx).map(|pair| pair.1)
+                self.pointtangents_scores.get(query_idx).map(|pair| pair.1)
             }
         } else {
-            self.get_many_dotprops_norm_score(&[query_idx, target_idx])
+            self.get_many_pointtangents_norm_score(&[query_idx, target_idx])
                 .map(|a| self._query_target(a[0], a[1], normalise, symmetric))
         }
     }
@@ -319,8 +317,8 @@ where
         normalise: bool,
         symmetric: bool,
     ) -> Option<HashMap<(DotPropIdx, DotPropIdx), Precision>> {
-        let query_doubles = self.get_many_dotprops_norm_score(query_idxs)?;
-        let target_doubles = self.get_many_dotprops_norm_score(target_idxs)?;
+        let query_doubles = self.get_many_pointtangents_norm_score(query_idxs)?;
+        let target_doubles = self.get_many_pointtangents_norm_score(target_idxs)?;
         let mut out = HashMap::with_capacity(query_idxs.len() * target_idxs.len());
 
         for (q_idx, q) in query_idxs.iter().zip(query_doubles.iter()) {
@@ -354,11 +352,11 @@ where
     }
 
     pub fn is_empty(&self) -> bool {
-        self.dotprops_scores.is_empty()
+        self.pointtangents_scores.is_empty()
     }
 
     pub fn len(&self) -> usize {
-        self.dotprops_scores.len()
+        self.pointtangents_scores.len()
     }
 }
 
@@ -391,14 +389,14 @@ mod tests {
     #[test]
     fn construct() {
         let points = make_points(&[0., 0., 0.], &[1., 0., 0.], 10);
-        DotProps::new(&points).expect("Construction failed");
+        PointTangents::new(&points).expect("Construction failed");
     }
 
     #[test]
     fn query() {
-        let query = DotProps::new(&make_points(&[0., 0., 0.], &[1., 0., 0.], 10))
+        let query = PointTangents::new(&make_points(&[0., 0., 0.], &[1., 0., 0.], 10))
             .expect("Construction failed");
-        let target = DotProps::new(&make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10))
+        let target = PointTangents::new(&make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10))
             .expect("Construction failed");
 
         let dist_dots = query.query_target_dist_dots(&target);
@@ -413,12 +411,17 @@ mod tests {
 
         let score_fn = table_to_fn(dist_thresholds, dot_thresholds, cells);
 
-        let query = DotProps::new(&make_points(&[0., 0., 0.], &[1., 0., 0.], 10))
+        let query = PointTangents::new(&make_points(&[0., 0., 0.], &[1., 0., 0.], 10))
             .expect("Construction failed");
-        let target = DotProps::new(&make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10))
+        let target = PointTangents::new(&make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10))
             .expect("Construction failed");
 
         let _score = query.query_target(&target, &score_fn);
+    }
+
+    #[test]
+    fn self_hit() {
+
     }
 
     #[test]
@@ -429,14 +432,14 @@ mod tests {
 
         let score_fn = table_to_fn(dist_thresholds, dot_thresholds, cells);
 
-        let query = DotProps::new(&make_points(&[0., 0., 0.], &[1., 0., 0.], 10))
+        let query = PointTangents::new(&make_points(&[0., 0., 0.], &[1., 0., 0.], 10))
             .expect("Construction failed");
-        let target = DotProps::new(&make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10))
+        let target = PointTangents::new(&make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10))
             .expect("Construction failed");
 
         let mut arena = NblastArena::new(score_fn);
-        let q_idx = arena.add_dotprops(query);
-        let t_idx = arena.add_dotprops(target);
+        let q_idx = arena.add_pointtangents(query);
+        let t_idx = arena.add_pointtangents(target);
 
         let no_norm = arena
             .query_target(q_idx, t_idx, false, false)
