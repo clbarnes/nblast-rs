@@ -1,4 +1,4 @@
-use nalgebra::base::{Matrix3x6, Vector3};
+use nalgebra::base::{Matrix3x6, Vector3, Unit};
 use rstar::primitives::PointWithData;
 use rstar::RTree;
 use std::collections::HashMap;
@@ -16,13 +16,21 @@ pub struct DistDot {
 #[derive(Clone)]
 pub struct PointTangents {
     rtree: RTree<PointWithIndex>,
-    tangents: Vec<Vector3<Precision>>,
+    tangents: Vec<Unit<Vector3<Precision>>>,
 }
 
 // TODO: check orientation of matrices, may need to transpose everything
-// TODO: consider using nalgebra's Point3 in PointWithIndex, for consistency
+// ? consider using nalgebra's Point3 in PointWithIndex, for consistency
 // ^ can't implement rstar::Point for nalgebra::geometry::Point3 because of orphan rules
 // TODO: replace Precision with float generic
+
+fn get_tangent(points: Vec<Vector3<Precision>>) -> Option<Unit<Vector3<Precision>>> {
+    // TODO: make more generic (e.g. take an iterator of slices)
+
+    let neighbor_mat: Matrix3x6<Precision> = Matrix3x6::from_columns(&points);
+    let svd = neighbor_mat.svd(false, true);
+    svd.v_t.map(|v_t| Unit::new_normalize(Vector3::from_iterator(v_t.column(0).iter().cloned())))
+}
 
 impl PointTangents {
     pub fn new(points: &[[Precision; 3]]) -> Result<Self, &'static str> {
@@ -38,7 +46,7 @@ impl PointTangents {
                 .collect(),
         );
 
-        let mut tangents: Vec<Vector3<Precision>> = Vec::with_capacity(rtree.size());
+        let mut tangents: Vec<Unit<Vector3<Precision>>> = Vec::with_capacity(rtree.size());
 
         for point in points.iter() {
             let nearest_it = rtree.nearest_neighbor_iter(&point);
@@ -50,14 +58,9 @@ impl PointTangents {
                 .map(|p| Vector3::from_column_slice(p.position()))
                 .collect();
 
-            let neighbor_mat: Matrix3x6<Precision> = Matrix3x6::from_columns(&columns);
-
-            let svd = neighbor_mat.svd(false, true);
-            if let Some(v_t) = svd.v_t {
-                // TODO: is this a unit vector?
-                tangents.push(Vector3::from_iterator(v_t.column(0).iter().cloned()));
-            } else {
-                return Err("Failed to SVD");
+            match get_tangent(columns) {
+                Some(t) => tangents.push(t),
+                None => return Err("Failed to SVD"),
             }
         }
 
@@ -66,7 +69,7 @@ impl PointTangents {
 
     pub fn from_points_tangents(
         points: &[[Precision; 3]],
-        tangents: Vec<Vector3<Precision>>,
+        tangents: Vec<Unit<Vector3<Precision>>>,
     ) -> Result<Self, &'static str> {
         if points.len() != tangents.len() {
             return Err("Tangents do not match points");
@@ -88,7 +91,7 @@ impl PointTangents {
     pub fn nearest_match_dist_dot(
         &self,
         point: &[Precision; 3],
-        tangent: &Vector3<Precision>,
+        tangent: &Unit<Vector3<Precision>>,
     ) -> DistDot {
         self.rtree
             .nearest_neighbor_iter_with_distance(point)
@@ -223,7 +226,7 @@ where
 
 pub type DotPropIdx = usize;
 
-/// TODO: caching strategy
+// TODO: caching strategy
 impl<F> NblastArena<F>
 where
     F: Fn(&DistDot) -> Precision,
@@ -392,6 +395,20 @@ mod tests {
         PointTangents::new(&points).expect("Construction failed");
     }
 
+    fn assert_close(val1: Precision, val2: Precision) {
+        assert!((val1 - val2).abs() < EPSILON);
+    }
+
+    #[test]
+    fn tangents_are_unit() {
+        let points = make_points(&[0., 0., 0.], &[1_000_000., 0., 0.,], 6);
+        let vectors: Vec<Vector3<Precision>> = points.iter()
+            .map(|p| Vector3::from_column_slice(p))
+            .collect();
+        let tangent = get_tangent(vectors).expect("SVD failed");
+        assert_close(tangent.dot(&tangent), 1.0)
+    }
+
     #[test]
     fn query() {
         let query = PointTangents::new(&make_points(&[0., 0., 0.], &[1., 0., 0.], 10))
@@ -417,11 +434,6 @@ mod tests {
             .expect("Construction failed");
 
         let _score = query.query_target(&target, &score_fn);
-    }
-
-    #[test]
-    fn self_hit() {
-
     }
 
     #[test]
