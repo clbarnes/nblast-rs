@@ -149,19 +149,10 @@ impl DotProps {
     where
         F: Fn(&DistDot) -> Precision,
     {
-        // inefficient but consistent
-        // self.query_target(self, score_fn)
-
-        // avoids rtree lookups and dot product
-        let mut total: Precision = 0.0;
-        for tangent in self.tangents.iter() {
-            let norm = tangent.norm();
-            let dd = DistDot {
-                dist: 0.0,
-                dot: norm * norm,
-            };
-            total += score_fn(&dd);
-        }
+        // Every point will match with itself, so distance will be 0.
+        // Dot product = cos(angle=0) * (norm^2=1) = 1 * 1 = 1
+        score_fn(&DistDot{dist: 0.0, dot: 1.0}) * self.tangents.len() as Precision
+    }
         total
     }
 }
