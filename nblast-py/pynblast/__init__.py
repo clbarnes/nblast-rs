@@ -35,7 +35,9 @@ class NblastArena:
     def query_target(
         self, query_idx: Idx, target_idx: Idx, normalise=False, symmetric=False
     ) -> float:
-        return self._impl.query_target(query_idx, target_idx, bool(normalise), bool(symmetric))
+        return self._impl.query_target(
+            query_idx, target_idx, bool(normalise), bool(symmetric)
+        )
 
     def queries_targets(
         self,
@@ -44,7 +46,9 @@ class NblastArena:
         normalise=False,
         symmetric=False,
     ) -> Dict[Tuple[Idx, Idx], float]:
-        return self._impl.queries_targets(query_idxs, target_idxs, bool(normalise), bool(symmetric))
+        return self._impl.queries_targets(
+            query_idxs, target_idxs, bool(normalise), bool(symmetric)
+        )
 
     def all_v_all(
         self, normalise=False, symmetric=False
