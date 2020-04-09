@@ -117,3 +117,5 @@ ENV/
 .mypy_cache/
 
 .benchmarks/
+
+*.rda
