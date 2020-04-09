@@ -5,8 +5,17 @@
 from typing import Tuple, Dict
 
 import pytest
+import pandas as pd
+import numpy as np
 
-from pynblast import NblastArena, Idx
+from pynblast import NblastArena, Idx, ScoreMatrix
+
+
+def test_read_smat(smat_path):
+    dist_bins, dot_bins, arr = ScoreMatrix.read(smat_path)
+    assert arr.shape == (len(dist_bins), len(dot_bins))
+    df = pd.read_csv(smat_path, index_col=0, header=0)
+    assert np.allclose(arr, df.to_numpy())
 
 
 def test_construction(score_mat_tup):
@@ -40,6 +49,24 @@ def test_normed(arena_points):
     for (q, t), v in out.items():
         if q == t:
             assert v == 1
+
+
+def test_self_hit(arena, points):
+    """Check that the self-hit results are correct.
+
+    Ensures that explicit self-hits (with speed optimisations) return
+    practically the same result as implicit self-hits (testing two
+    identical neurons against each other).
+
+    As a side-effect, proves that tangent vectors are unit-length, as
+    this is assumed by the self-hit optimisations.
+    """
+    _name, df = points[0]
+    idx1 = arena.add_points(df.to_numpy())
+    idx2 = arena.add_points(df.to_numpy())
+    true_self = arena.query_target(idx1, idx1)
+    different_self = arena.query_target(idx1, idx2)
+    assert different_self == pytest.approx(true_self, 0.0001)
 
 
 def test_normed_calc(arena_points):

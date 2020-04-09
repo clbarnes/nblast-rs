@@ -11,22 +11,13 @@ from .constants import DATA_DIR
 
 
 @pytest.fixture
-def score_mat_df() -> pd.DataFrame:
-    return pd.read_csv(DATA_DIR / "smat_jefferis.csv", sep=" ", header=0, index_col=0)
-
-
-def parse_interval(s):
-    return float(s.split(",")[-1][:1])
+def smat_path() -> Path:
+    return DATA_DIR / "smat_fcwb.csv"
 
 
 @pytest.fixture
-def score_mat_tup(
-    score_mat_df: pd.DataFrame,
-) -> Tuple[List[float], List[float], np.ndarray]:
-    dist_bins = [parse_interval(item) for item in score_mat_df.index]
-    dot_bins = [parse_interval(item) for item in score_mat_df.columns]
-    data = score_mat_df.to_numpy()
-    return dist_bins, dot_bins, data
+def score_mat_tup(smat_path) -> pynblast.ScoreMatrix:
+    return pynblast.ScoreMatrix.read(smat_path)
 
 
 def parse_points(fpath: Path) -> pd.DataFrame:
