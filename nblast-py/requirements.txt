@@ -1,12 +1,12 @@
 # build
-maturin==0.7.7
+maturin==0.8.0
 
 # run
-numpy==1.18.1
+numpy==1.18.2
 
 # test
-pandas==1.0.0
-pytest==5.3.5
+pandas==1.0.3
+pytest==5.4.1
 pytest-runner==5.2
 
 # bench
@@ -15,10 +15,10 @@ pytest-benchmark==3.2.3
 # develop
 pip==20.0.2
 wheel==0.34.2
-watchdog==0.10.1
+watchdog==0.10.2
 flake8==3.7.9
-coverage==5.0.3
-Sphinx==2.3.1
+coverage==5.0.4
+Sphinx==3.0.0
 pickle5==0.0.9
 black==19.10b0
-mypy==0.761
+mypy==0.770
