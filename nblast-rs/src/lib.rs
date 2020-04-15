@@ -1,9 +1,11 @@
-use nalgebra::base::{Matrix3x6, Vector3, Unit};
+use nalgebra::base::{Matrix3x5, Unit, Vector3};
 use rstar::primitives::PointWithData;
 use rstar::RTree;
 use std::collections::HashMap;
 
+// NOTE: will panic if this is changed due to use of Matrix3x5
 const N_NEIGHBORS: usize = 5;
+
 pub type Precision = f64;
 type PointWithIndex = PointWithData<usize, [Precision; 3]>;
 
@@ -13,82 +15,242 @@ pub struct DistDot {
     pub dot: Precision,
 }
 
+impl Default for DistDot {
+    fn default() -> Self {
+        Self {
+            dist: 0.0,
+            dot: 1.0,
+        }
+    }
+}
+
+pub trait QueryNeuron {
+    fn len(&self) -> usize;
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    fn query(
+        &self,
+        target: &impl TargetNeuron,
+        score_fn: &impl Fn(&DistDot) -> Precision,
+    ) -> Precision;
+
+    fn query_normalized(
+        &self,
+        target: &impl TargetNeuron,
+        score_fn: &impl Fn(&DistDot) -> Precision,
+    ) -> Precision {
+        self.query(target, score_fn) / self.self_hit(score_fn)
+    }
+
+    fn self_hit(&self, score_fn: &impl Fn(&DistDot) -> Precision) -> Precision {
+        score_fn(&DistDot::default()) * self.len() as Precision
+    }
+
+    fn points(&self) -> Vec<[Precision; 3]>;
+
+    fn tangents(&self) -> Vec<Unit<Vector3<Precision>>>;
+
+}
+
 #[derive(Clone)]
-pub struct PointTangents {
+pub struct QueryPointTangents {
+    points: Vec<[Precision; 3]>,
+    tangents: Vec<Unit<Vector3<Precision>>>,
+}
+
+fn subtract_points(p1: &[Precision; 3], p2: &[Precision; 3]) -> [Precision; 3] {
+    let mut result = [0.0; 3];
+    for ((rref, v1), v2) in result.iter_mut().zip(p1).zip(p2) {
+        *rref = v1 - v2;
+    }
+    result
+}
+
+pub fn center_points<'a>(
+    points: impl Iterator<Item = &'a [Precision; 3]>,
+) -> impl Iterator<Item = [Precision; 3]> {
+    let mut points_vec = Vec::default();
+    let mut means: [Precision; 3] = [0.0, 0.0, 0.0];
+    for pt in points {
+        points_vec.push(*pt);
+        for (sum, v) in means.iter_mut().zip(pt.iter()) {
+            *sum += v;
+        }
+    }
+    for val in means.iter_mut() {
+        *val /= points_vec.len() as Precision;
+    }
+    let subtract = move |p| subtract_points(&p, &means);
+    points_vec.into_iter().map(subtract)
+}
+
+// TODO: finish impl, test performance
+// m @ mat.T
+// take vec with biggest val (normalize it?)
+// pub fn points_to_tangent_eig<'a>(points: impl Iterator<Item = &'a [Precision; 3]>) -> Option<Unit<Vector3<Precision>>> {
+//     let cols_vec: Vec<Vector3<Precision>> = center_points(points).map(|p| Vector3::from_column_slice(&p)).collect();
+//     let neighbor_mat = Matrix3x5::from_columns(&cols_vec);
+// }
+
+pub fn points_to_tangent_svd<'a>(
+    points: impl Iterator<Item = &'a [Precision; 3]>,
+) -> Option<Unit<Vector3<Precision>>> {
+    let cols_vec: Vec<Vector3<Precision>> = center_points(points)
+        .map(|p| Vector3::from_column_slice(&p))
+        .collect();
+    let neighbor_mat = Matrix3x5::from_columns(&cols_vec);
+    let svd = neighbor_mat.svd(false, true);
+
+    // TODO: change to new_unchecked if possible (i.e. if SVD produces normalized right vectors)
+    svd.v_t
+        .map(|v_t| Unit::new_normalize(Vector3::from_iterator(v_t.column(0).iter().cloned())))
+}
+
+fn points_to_rtree(points: &[[Precision; 3]]) -> Result<RTree<PointWithIndex>, &'static str> {
+    if points.len() < N_NEIGHBORS {
+        return Err("Not enough points");
+    }
+
+    Ok(RTree::bulk_load(
+        points
+            .iter()
+            .enumerate()
+            .map(|(idx, point)| PointWithIndex::new(idx, *point))
+            .collect(),
+    ))
+}
+
+fn points_to_rtree_tangents(
+    points: &[[Precision; 3]],
+) -> Result<(RTree<PointWithIndex>, Vec<Unit<Vector3<Precision>>>), &'static str> {
+    let rtree = points_to_rtree(points)?;
+
+    let mut tangents: Vec<Unit<Vector3<Precision>>> = Vec::with_capacity(rtree.size());
+
+    for point in points.iter() {
+        match points_to_tangent_svd(
+            rtree
+                .nearest_neighbor_iter(&point)
+                .take(N_NEIGHBORS)
+                .map(|pwd| pwd.position()),
+        ) {
+            Some(t) => tangents.push(t),
+            None => return Err("Failed to SVD"),
+        }
+    }
+
+    Ok((rtree, tangents))
+}
+
+impl QueryPointTangents {
+    pub fn new(points: Vec<[Precision; 3]>) -> Result<Self, &'static str> {
+        points_to_rtree_tangents(&points).map(|(_, tangents)| Self { points, tangents })
+    }
+}
+
+impl QueryNeuron for QueryPointTangents {
+    fn len(&self) -> usize {
+        self.points.len()
+    }
+
+    fn query(
+        &self,
+        target: &impl TargetNeuron,
+        score_fn: &impl Fn(&DistDot) -> Precision,
+    ) -> Precision {
+        let mut score_total: Precision = 0.0;
+        for (q_pt, q_tan) in self.points.iter().zip(self.tangents.iter()) {
+            score_total += score_fn(&target.nearest_match_dist_dot(q_pt, q_tan));
+        }
+        score_total
+    }
+
+    fn points(&self) -> Vec<[Precision; 3]> {
+        self.points.clone()
+    }
+
+    fn tangents(&self) -> Vec<Unit<Vector3<Precision>>> {
+        self.tangents.clone()
+    }
+}
+
+pub trait TargetNeuron: QueryNeuron {
+    /// For a given point and tangent vector,
+    /// get the distance to its nearest neighbor and dot product with that neighbor's tangent
+    fn nearest_match_dist_dot(
+        &self,
+        point: &[Precision; 3],
+        tangent: &Unit<Vector3<Precision>>,
+    ) -> DistDot;
+
+    // TODO: implementations will be the same, but can't implement here due to lack of Sized constraint
+    fn query_symmetric(
+        &self,
+        target: &impl TargetNeuron,
+        score_fn: &impl Fn(&DistDot) -> Precision,
+    ) -> Precision;
+
+    fn query_normalized_symmetric(
+        &self,
+        target: &impl TargetNeuron,
+        score_fn: &impl Fn(&DistDot) -> Precision,
+    ) -> Precision;
+}
+
+#[derive(Clone)]
+pub struct RStarPointTangents {
     rtree: RTree<PointWithIndex>,
     tangents: Vec<Unit<Vector3<Precision>>>,
 }
 
-// TODO: check orientation of matrices, may need to transpose everything
-// ? consider using nalgebra's Point3 in PointWithIndex, for consistency
-// ^ can't implement rstar::Point for nalgebra::geometry::Point3 because of orphan rules
-// TODO: replace Precision with float generic
-
-fn get_tangent(points: Vec<Vector3<Precision>>) -> Option<Unit<Vector3<Precision>>> {
-    // TODO: make more generic (e.g. take an iterator of slices)
-
-    let neighbor_mat: Matrix3x6<Precision> = Matrix3x6::from_columns(&points);
-    let svd = neighbor_mat.svd(false, true);
-    svd.v_t.map(|v_t| Unit::new_normalize(Vector3::from_iterator(v_t.column(0).iter().cloned())))
-}
-
-impl PointTangents {
-    pub fn new(points: &[[Precision; 3]]) -> Result<Self, &'static str> {
-        if points.len() < N_NEIGHBORS + 1 {
-            return Err("Not enough points");
-        }
-
-        let rtree = RTree::bulk_load(
-            points
-                .iter()
-                .enumerate()
-                .map(|(idx, point)| PointWithIndex::new(idx, *point))
-                .collect(),
-        );
-
-        let mut tangents: Vec<Unit<Vector3<Precision>>> = Vec::with_capacity(rtree.size());
-
-        for point in points.iter() {
-            let nearest_it = rtree.nearest_neighbor_iter(&point);
-
-            // TODO: would probably be faster to read the matrix as single elements
-            // from a flat_map, but this intermediate should help prevent row/column order bugs
-            let columns: Vec<Vector3<Precision>> = nearest_it
-                .take(N_NEIGHBORS + 1)
-                .map(|p| Vector3::from_column_slice(p.position()))
-                .collect();
-
-            match get_tangent(columns) {
-                Some(t) => tangents.push(t),
-                None => return Err("Failed to SVD"),
-            }
-        }
-
-        Ok(Self { rtree, tangents })
+impl RStarPointTangents {
+    pub fn new(points: Vec<[Precision; 3]>) -> Result<Self, &'static str> {
+        points_to_rtree_tangents(&points).map(|(rtree, tangents)| Self { rtree, tangents })
     }
 
-    pub fn from_points_tangents(
-        points: &[[Precision; 3]],
+    pub fn new_with_tangents(
+        points: Vec<[Precision; 3]>,
         tangents: Vec<Unit<Vector3<Precision>>>,
     ) -> Result<Self, &'static str> {
-        if points.len() != tangents.len() {
-            return Err("Tangents do not match points");
-        }
+        points_to_rtree(&points).map(|rtree| Self { rtree, tangents })
+    }
+}
 
-        let rtree = RTree::bulk_load(
-            points
-                .iter()
-                .enumerate()
-                .map(|(idx, point)| PointWithIndex::new(idx, *point))
-                .collect(),
-        );
-
-        Ok(Self { rtree, tangents })
+impl QueryNeuron for RStarPointTangents {
+    fn len(&self) -> usize {
+        self.tangents.len()
     }
 
-    /// For a given point and tangent vector,
-    /// get the distance to its nearest neighbor and dot product with that neighbor's tangent
-    pub fn nearest_match_dist_dot(
+    fn query(
+        &self,
+        target: &impl TargetNeuron,
+        score_fn: &impl Fn(&DistDot) -> Precision,
+    ) -> Precision {
+        let mut score_total: Precision = 0.0;
+        for q_pt_idx in self.rtree.iter() {
+            score_total += score_fn(
+                &target.nearest_match_dist_dot(q_pt_idx.position(), &self.tangents[q_pt_idx.data]),
+            );
+        }
+        score_total
+    }
+
+    fn points(&self) -> Vec<[Precision; 3]> {
+        let mut unsorted: Vec<&PointWithIndex> = self.rtree.iter().collect();
+        unsorted.sort_by_key(|pwd| pwd.data);
+        unsorted.into_iter().map(|pwd| *pwd.position()).collect()
+    }
+
+    fn tangents(&self) -> Vec<Unit<Vector3<Precision>>> {
+        self.tangents.clone()
+    }
+}
+
+impl TargetNeuron for RStarPointTangents {
+    fn nearest_match_dist_dot(
         &self,
         point: &[Precision; 3],
         tangent: &Unit<Vector3<Precision>>,
@@ -104,86 +266,51 @@ impl PointTangents {
             .expect("impossible")
     }
 
-    /// For every segment in self, find the nearest segment in target,
-    /// and return the distance and dot product of the points and tangents respectively.
-    ///
-    /// Return order is arbitrary
-    pub fn query_target_dist_dots(&self, target: &Self) -> Vec<DistDot> {
-        let mut out: Vec<DistDot> = Vec::with_capacity(self.rtree.size());
-
-        // TODO: parallelise
-        for q_point in self.rtree.iter() {
-            out.push(
-                target.nearest_match_dist_dot(q_point.position(), &self.tangents[q_point.data]),
-            );
-        }
-
-        out
+    fn query_symmetric(
+        &self,
+        target: &impl TargetNeuron,
+        score_fn: &impl Fn(&DistDot) -> Precision,
+    ) -> Precision {
+        (self.query(target, score_fn) + target.query(self, score_fn)) / 2.0
     }
 
-    /// Get the raw NBLAST score for this pair of neuron pointtangents.
-    pub fn query_target<F>(&self, target: &Self, score_fn: &F) -> Precision
-    where
-        F: Fn(&DistDot) -> Precision,
-    {
-        let mut out: f64 = 0.0;
-        for q_point in self.rtree.iter() {
-            out += score_fn(
-                &target.nearest_match_dist_dot(q_point.position(), &self.tangents[q_point.data]),
-            );
-        }
-        out
-    }
-
-    /// Get the raw NBLAST scores for this neuron with every one of the given targets.
-    pub fn query_targets<F>(&self, targets: &[&Self], score_fn: &F) -> Vec<Precision>
-    where
-        F: Fn(&DistDot) -> Precision,
-    {
-        // TODO: parallelise
-        targets
-            .iter()
-            .map(|t| self.query_target(&t, score_fn))
-            .collect()
-    }
-
-    /// Get the raw NBLAST score of this neuron with itself, for normalisation.
-    pub fn self_hit<F>(&self, score_fn: &F) -> Precision
-    where
-        F: Fn(&DistDot) -> Precision,
-    {
-        // Every point will match with itself, so distance will be 0.
-        // Dot product = cos(angle=0) * (norm^2=1) = 1 * 1 = 1
-        score_fn(&DistDot{dist: 0.0, dot: 1.0}) * self.tangents.len() as Precision
+    fn query_normalized_symmetric(
+        &self,
+        target: &impl TargetNeuron,
+        score_fn: &impl Fn(&DistDot) -> Precision,
+    ) -> Precision {
+        (self.query_normalized(target, score_fn) + target.query_normalized(self, score_fn)) / 2.0
     }
 }
 
-/// For slice of (query, targets[]) pairs, find all the raw NBLAST scores.
-pub fn queries_targets<F>(
-    qs_ts: &[(&PointTangents, Vec<&PointTangents>)],
-    score_fn: &F,
-) -> Vec<Vec<Precision>>
-where
-    F: Fn(&DistDot) -> Precision,
-{
-    qs_ts
-        .iter()
-        .map(|(q, ts)| q.query_targets(ts, score_fn))
-        .collect()
-}
+// TODO: check orientation of matrices, may need to transpose everything
+// ? consider using nalgebra's Point3 in PointWithIndex, for consistency
+// ^ can't implement rstar::Point for nalgebra::geometry::Point3 because of orphan rules
+// TODO: replace Precision with float generic
 
 /// Given the upper bounds of a number of bins, find which bin the value falls into.
-/// Values outside of the range fall into the bottom and top bin.
-fn find_bin(value: Precision, upper_bounds: &[Precision]) -> usize {
-    let mut out = 0;
+/// Values outside of the range fall into the bottom or top bin.
+fn find_bin_binary(value: Precision, upper_bounds: &[Precision]) -> usize {
+    let raw = match upper_bounds.binary_search_by(|bound| bound.partial_cmp(&value).unwrap()) {
+        Ok(v) => v + 1,
+        Err(v) => v,
+    };
+    let highest = upper_bounds.len() - 1;
+    if raw > highest {
+        highest
+    } else {
+        raw
+    }
+}
 
+fn find_bin_linear(value: Precision, upper_bounds: &[Precision]) -> usize {
+    let mut out = 0;
     for bound in upper_bounds.iter() {
         if &value < bound {
             return out;
         }
         out += 1;
     }
-
     out - 1
 }
 
@@ -208,158 +335,144 @@ pub fn table_to_fn(
     }
 
     move |dd: &DistDot| -> Precision {
-        let col_idx = find_bin(dd.dot, &dot_thresholds);
-        let row_idx = find_bin(dd.dist, &dist_thresholds);
+        let col_idx = find_bin_linear(dd.dot, &dot_thresholds);
+        let row_idx = find_bin_linear(dd.dist, &dist_thresholds);
 
         let lin_idx = row_idx * dot_thresholds.len() + col_idx;
         cells[lin_idx]
     }
 }
 
-pub struct NblastArena<F>
+#[derive(Clone)]
+pub struct NblastArena<N, F>
 where
+    N: TargetNeuron,
     F: Fn(&DistDot) -> Precision,
 {
-    pointtangents_scores: Vec<(PointTangents, Precision)>,
+    neurons_scores: Vec<(N, Precision)>,
     score_fn: F,
 }
 
-pub type DotPropIdx = usize;
+pub type NeuronIdx = usize;
 
 // TODO: caching strategy
-impl<F> NblastArena<F>
+impl<N, F> NblastArena<N, F>
 where
+    N: TargetNeuron,
     F: Fn(&DistDot) -> Precision,
 {
     pub fn new(score_fn: F) -> Self {
         Self {
-            pointtangents_scores: Vec::default(),
+            neurons_scores: Vec::default(),
             score_fn,
         }
     }
 
-    fn next_id(&self) -> DotPropIdx {
-        self.pointtangents_scores.len()
+    fn next_id(&self) -> NeuronIdx {
+        self.neurons_scores.len()
     }
 
-    pub fn add_pointtangents(&mut self, pointtangents: PointTangents) -> DotPropIdx {
+    pub fn add_neuron(&mut self, neuron: N) -> NeuronIdx {
         let idx = self.next_id();
-        let score = pointtangents.self_hit(&self.score_fn);
-        self.pointtangents_scores.push((pointtangents, score));
+        let score = neuron.self_hit(&self.score_fn);
+        self.neurons_scores.push((neuron, score));
         idx
-    }
-
-    // TODO: Results instead of Options?
-
-    fn get_pointtangents_norm_score(&self, idx: DotPropIdx) -> Option<&(PointTangents, f64)> {
-        self.pointtangents_scores.get(idx)
-    }
-
-    fn get_many_pointtangents_norm_score(&self, idxs: &[DotPropIdx]) -> Option<Vec<&(PointTangents, f64)>> {
-        let mut out = Vec::with_capacity(idxs.len());
-        for idx in idxs.iter() {
-            if let Some(dp_s) = self.get_pointtangents_norm_score(*idx) {
-                out.push(dp_s)
-            } else {
-                return None;
-            }
-        }
-        Some(out)
-    }
-
-    pub fn add_points(&mut self, points: &[[Precision; 3]]) -> Result<usize, &'static str> {
-        let pointtangents = PointTangents::new(points)?;
-        Ok(self.add_pointtangents(pointtangents))
-    }
-
-    fn _query_target(
-        &self,
-        query: &(PointTangents, Precision),
-        target: &(PointTangents, Precision),
-        normalise: bool,
-        symmetric: bool,
-    ) -> Precision {
-        let mut score = query.0.query_target(&target.0, &self.score_fn);
-        if normalise {
-            score /= query.1;
-        }
-        if symmetric {
-            let mut score2 = target.0.query_target(&query.0, &self.score_fn);
-            if normalise {
-                score2 /= target.1;
-            }
-            score += score2;
-            score /= 2.0;
-        }
-        score
     }
 
     pub fn query_target(
         &self,
-        query_idx: DotPropIdx,
-        target_idx: DotPropIdx,
-        normalise: bool,
+        query_idx: NeuronIdx,
+        target_idx: NeuronIdx,
+        normalized: bool,
         symmetric: bool,
     ) -> Option<Precision> {
-        if query_idx == target_idx {
-            if normalise {
-                Some(1.0)
-            } else {
-                self.pointtangents_scores.get(query_idx).map(|pair| pair.1)
-            }
-        } else {
-            self.get_many_pointtangents_norm_score(&[query_idx, target_idx])
-                .map(|a| self._query_target(a[0], a[1], normalise, symmetric))
+        // ? consider separate methods
+        let q = self.neurons_scores.get(query_idx)?;
+        let t = self.neurons_scores.get(target_idx)?;
+        let mut score = q.0.query(&t.0, &self.score_fn);
+        if normalized {
+            score /= q.1;
         }
+        if symmetric {
+            let mut score2 = t.0.query(&q.0, &self.score_fn);
+            if normalized {
+                score2 /= t.1;
+            }
+            score = (score + score2) / 2.0;
+        }
+        Some(score)
     }
 
     pub fn queries_targets(
         &self,
-        query_idxs: &[DotPropIdx],
-        target_idxs: &[DotPropIdx],
-        normalise: bool,
+        query_idxs: &[NeuronIdx],
+        target_idxs: &[NeuronIdx],
+        normalize: bool,
         symmetric: bool,
-    ) -> Option<HashMap<(DotPropIdx, DotPropIdx), Precision>> {
-        let query_doubles = self.get_many_pointtangents_norm_score(query_idxs)?;
-        let target_doubles = self.get_many_pointtangents_norm_score(target_idxs)?;
+    ) -> HashMap<(NeuronIdx, NeuronIdx), Precision> {
         let mut out = HashMap::with_capacity(query_idxs.len() * target_idxs.len());
 
-        for (q_idx, q) in query_idxs.iter().zip(query_doubles.iter()) {
-            for (t_idx, t) in target_idxs.iter().zip(target_doubles.iter()) {
+        for q_idx in query_idxs.iter() {
+            for t_idx in target_idxs.iter() {
                 let key = (*q_idx, *t_idx);
                 if q_idx == t_idx {
-                    let mut val = 1.0;
-                    if !normalise {
-                        val *= q.1;
+                    if q_idx < &self.neurons_scores.len() {
+                        let mut val = 1.0;
+                        if !normalize {
+                            val *= self
+                                .neurons_scores
+                                .get(*q_idx)
+                                .expect("Already checked length")
+                                .1;
+                        }
+                        out.insert(key, val);
                     }
-                    out.insert(key, val);
                 } else if symmetric {
-                    out.entry((*t_idx, *q_idx))
-                        .or_insert_with(|| self._query_target(q, t, normalise, symmetric));
+                    match out.get(&(*t_idx, *q_idx)).map_or_else(
+                        || self.query_target(*q_idx, *t_idx, normalize, true),
+                        |s| Some(*s),
+                    ) {
+                        Some(s) => out.insert(key, s),
+                        _ => None,
+                    };
                 } else {
-                    let score = self._query_target(q, t, normalise, symmetric);
-                    out.insert(key, score);
+                    match self.query_target(*q_idx, *t_idx, normalize, false) {
+                        Some(s) => out.insert(key, s),
+                        _ => None,
+                    };
                 }
             }
         }
-        Some(out)
+        out
+    }
+
+    pub fn self_hit(&self, idx: NeuronIdx) -> Option<Precision> {
+        self.neurons_scores.get(idx).map(|(_, s)| *s)
     }
 
     pub fn all_v_all(
         &self,
-        normalise: bool,
+        normalize: bool,
         symmetric: bool,
-    ) -> Option<HashMap<(DotPropIdx, DotPropIdx), Precision>> {
-        let idxs: Vec<DotPropIdx> = (0..self.len()).collect();
-        self.queries_targets(&idxs, &idxs, normalise, symmetric)
+    ) -> HashMap<(NeuronIdx, NeuronIdx), Precision> {
+        let idxs: Vec<NeuronIdx> = (0..self.len()).collect();
+        self.queries_targets(&idxs, &idxs, normalize, symmetric)
     }
 
     pub fn is_empty(&self) -> bool {
-        self.pointtangents_scores.is_empty()
+        self.neurons_scores.is_empty()
     }
 
     pub fn len(&self) -> usize {
-        self.pointtangents_scores.len()
+        self.neurons_scores.len()
+    }
+
+    pub fn points(&self, idx: NeuronIdx) -> Option<Vec<[Precision; 3]>> {
+        self.neurons_scores.get(idx).map(|(n, _)| n.points())
+    }
+
+    pub fn tangents(&self, idx: NeuronIdx) -> Option<Vec<Unit<Vector3<Precision>>>> {
+        self.neurons_scores.get(idx).map(|(n, _)| n.tangents())
     }
 }
 
@@ -392,7 +505,8 @@ mod tests {
     #[test]
     fn construct() {
         let points = make_points(&[0., 0., 0.], &[1., 0., 0.], 10);
-        PointTangents::new(&points).expect("Construction failed");
+        QueryPointTangents::new(points.clone()).expect("Query construction failed");
+        RStarPointTangents::new(points).expect("Target construction failed");
     }
 
     fn assert_close(val1: Precision, val2: Precision) {
@@ -401,23 +515,9 @@ mod tests {
 
     #[test]
     fn tangents_are_unit() {
-        let points = make_points(&[0., 0., 0.], &[1_000_000., 0., 0.,], 6);
-        let vectors: Vec<Vector3<Precision>> = points.iter()
-            .map(|p| Vector3::from_column_slice(p))
-            .collect();
-        let tangent = get_tangent(vectors).expect("SVD failed");
+        let points = make_points(&[0., 0., 0.], &[1_000_000., 0., 0.], N_NEIGHBORS);
+        let tangent = points_to_tangent_svd(points.iter()).expect("SVD failed");
         assert_close(tangent.dot(&tangent), 1.0)
-    }
-
-    #[test]
-    fn query() {
-        let query = PointTangents::new(&make_points(&[0., 0., 0.], &[1., 0., 0.], 10))
-            .expect("Construction failed");
-        let target = PointTangents::new(&make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10))
-            .expect("Construction failed");
-
-        let dist_dots = query.query_target_dist_dots(&target);
-        assert_eq!(dist_dots.len(), 10);
     }
 
     #[test]
@@ -428,12 +528,46 @@ mod tests {
 
         let score_fn = table_to_fn(dist_thresholds, dot_thresholds, cells);
 
-        let query = PointTangents::new(&make_points(&[0., 0., 0.], &[1., 0., 0.], 10))
-            .expect("Construction failed");
-        let target = PointTangents::new(&make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10))
+        let q_points = make_points(&[0., 0., 0.], &[1.0, 0.0, 0.0], 10);
+        let query = QueryPointTangents::new(q_points.clone()).expect("Query construction failed");
+        let query2 = RStarPointTangents::new(q_points).expect("Construction failed");
+        let target = RStarPointTangents::new(make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10))
             .expect("Construction failed");
 
-        let _score = query.query_target(&target, &score_fn);
+        assert_close(
+            query.query(&target, &score_fn),
+            query2.query(&target, &score_fn),
+        );
+        assert_close(query.self_hit(&score_fn), query2.self_hit(&score_fn));
+        let score = query.query(&query2, &score_fn);
+        let self_hit = query.self_hit(&score_fn);
+        println!("score: {:?}, self-hit {:?}", score, self_hit);
+        assert_close(query.query(&query2, &score_fn), query.self_hit(&score_fn));
+    }
+
+    #[test]
+    fn alt_score_functions() {
+        let dist_thresholds = vec![1.0, 2.0];
+        let dot_thresholds = vec![0.5, 1.0];
+        let cells = vec![1.0, 2.0, 4.0, 8.0];
+
+        let score_fn = table_to_fn(dist_thresholds, dot_thresholds, cells);
+
+        let query = RStarPointTangents::new(make_points(&[0., 0., 0.], &[1.0, 0.0, 0.0], 10))
+            .expect("Construction failed");
+        let target = RStarPointTangents::new(make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10))
+            .expect("Construction failed");
+
+        assert_close(query.query_normalized(&query, &score_fn), 1.0);
+        assert_close(
+            query.query_symmetric(&target, &score_fn),
+            target.query_symmetric(&query, &score_fn),
+        );
+        assert_close(query.query_normalized_symmetric(&query, &score_fn), 1.0);
+        assert_close(
+            query.query_normalized_symmetric(&target, &score_fn),
+            target.query_normalized_symmetric(&query, &score_fn),
+        );
     }
 
     #[test]
@@ -444,14 +578,14 @@ mod tests {
 
         let score_fn = table_to_fn(dist_thresholds, dot_thresholds, cells);
 
-        let query = PointTangents::new(&make_points(&[0., 0., 0.], &[1., 0., 0.], 10))
+        let query = RStarPointTangents::new(make_points(&[0., 0., 0.], &[1., 0., 0.], 10))
             .expect("Construction failed");
-        let target = PointTangents::new(&make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10))
+        let target = RStarPointTangents::new(make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10))
             .expect("Construction failed");
 
         let mut arena = NblastArena::new(score_fn);
-        let q_idx = arena.add_pointtangents(query);
-        let t_idx = arena.add_pointtangents(target);
+        let q_idx = arena.add_neuron(query);
+        let t_idx = arena.add_neuron(target);
 
         let no_norm = arena
             .query_target(q_idx, t_idx, false, false)
@@ -459,6 +593,7 @@ mod tests {
         let self_hit = arena
             .query_target(q_idx, q_idx, false, false)
             .expect("should exist");
+
         assert!(
             arena
                 .query_target(q_idx, t_idx, true, false)
@@ -470,5 +605,8 @@ mod tests {
             arena.query_target(q_idx, t_idx, false, true),
             arena.query_target(t_idx, q_idx, false, true),
         );
+
+        let out = arena.queries_targets(&[q_idx, t_idx], &[t_idx, q_idx], false, false);
+        assert_eq!(out.len(), 4);
     }
 }
