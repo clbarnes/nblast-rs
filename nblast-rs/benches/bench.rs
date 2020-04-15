@@ -7,7 +7,7 @@ use bencher::{benchmark_group, benchmark_main, Bencher};
 use csv::ReaderBuilder;
 // extern crate nblast;
 
-use nblast::{table_to_fn, DistDot, PointTangents, NblastArena};
+use nblast::{table_to_fn, DistDot, NblastArena, RStarPointTangents, QueryNeuron, TargetNeuron};
 
 const NAMES: [&str; 20] = [
     "ChaMARCM-F000586_seg002",
@@ -60,7 +60,8 @@ type Record = (usize, f64, f64, f64);
 type Precision = f64;
 
 fn read_points(name: &str) -> Vec<[Precision; 3]> {
-    let f = File::open(to_path(name)).expect("file not found");
+    let fpath = to_path(name);
+    let f = File::open(fpath.clone()).unwrap_or_else(|_| panic!("couldn't find file at {:?}", fpath));
     let mut reader = ReaderBuilder::new().has_headers(true).from_reader(f);
     let mut out = Vec::default();
 
@@ -82,20 +83,19 @@ fn parse_interval(s: &str) -> (f64, f64) {
             .parse::<f64>()
             .unwrap_or_else(|_| panic!(format!("lower bound not float: '{}'", l_r.0))),
         r.1.parse::<f64>()
-            .unwrap_or_else(|_| panic!(format!("upper bound not float: '{}'", l_r.0))),
+            .unwrap_or_else(|_| panic!(format!("upper bound not float: '{}'", r.1))),
     )
 }
 
 /// dist thresholds, dot thresholds, cells
 fn read_smat() -> (Vec<Precision>, Vec<Precision>, Vec<Precision>) {
     let mut d = data_dir();
-    d.push("smat_jefferis.csv");
+    d.push("smat_fcwb.csv");
 
     let f = File::open(d).expect("file not found");
     let mut reader = ReaderBuilder::new()
         .has_headers(false)
         .flexible(true)
-        .delimiter(b' ')
         .from_reader(f);
 
     let mut dot_tresholds = Vec::new();
@@ -134,27 +134,51 @@ fn get_score_fn() -> impl Fn(&DistDot) -> Precision {
 
 fn bench_query(b: &mut Bencher) {
     let score_fn = get_score_fn();
-    let query = PointTangents::new(&read_points(NAMES[0])).expect("couldn't parse");
-    let target = PointTangents::new(&read_points(NAMES[1])).expect("couldn't parse");
+    let query = RStarPointTangents::new(read_points(NAMES[0])).expect("couldn't parse");
+    let target = RStarPointTangents::new(read_points(NAMES[1])).expect("couldn't parse");
 
-    b.iter(|| query.query_target(&target, &score_fn))
+    b.iter(|| query.query(&target, &score_fn))
 }
 
-fn bench_dotprop_construction(b: &mut Bencher) {
+fn bench_query_normalized(b: &mut Bencher) {
+    let score_fn = get_score_fn();
+    let query = RStarPointTangents::new(read_points(NAMES[0])).expect("couldn't parse");
+    let target = RStarPointTangents::new(read_points(NAMES[1])).expect("couldn't parse");
+
+    b.iter(|| query.query_normalized(&target, &score_fn))
+}
+
+fn bench_query_symmetric(b: &mut Bencher) {
+    let score_fn = get_score_fn();
+    let query = RStarPointTangents::new(read_points(NAMES[0])).expect("couldn't parse");
+    let target = RStarPointTangents::new(read_points(NAMES[1])).expect("couldn't parse");
+
+    b.iter(|| query.query_symmetric(&target, &score_fn))
+}
+
+fn bench_query_normalized_symmetric(b: &mut Bencher) {
+    let score_fn = get_score_fn();
+    let query = RStarPointTangents::new(read_points(NAMES[0])).expect("couldn't parse");
+    let target = RStarPointTangents::new(read_points(NAMES[1])).expect("couldn't parse");
+
+    b.iter(|| query.query_normalized_symmetric(&target, &score_fn))
+}
+
+fn bench_rstarpt_construction(b: &mut Bencher) {
     let points = read_points(NAMES[0]);
-    b.iter(|| PointTangents::new(&points).expect("couldn't parse"));
+    b.iter(|| RStarPointTangents::new(points.clone()).expect("couldn't parse"));
 }
 
 fn bench_arena_construction(b: &mut Bencher) {
     let score_fn = get_score_fn();
     let pointtangents: Vec<_> = NAMES
         .iter()
-        .map(|n| PointTangents::new(&read_points(n)).expect("couldn't parse"))
+        .map(|n| RStarPointTangents::new(read_points(n)).expect("couldn't parse"))
         .collect();
     b.iter(|| {
         let mut arena = NblastArena::new(&score_fn);
         for dp in pointtangents.iter().cloned() {
-            arena.add_pointtangents(dp);
+            arena.add_neuron(dp);
         }
     })
 }
@@ -164,7 +188,7 @@ fn bench_all_to_all(b: &mut Bencher) {
     let mut idxs = Vec::new();
     for name in NAMES.iter() {
         let points = read_points(name);
-        idxs.push(arena.add_points(&points).expect("couldn't parse"));
+        idxs.push(arena.add_neuron(RStarPointTangents::new(points).expect("couldn't parse")));
     }
 
     b.iter(|| arena.queries_targets(&idxs, &idxs, false, false));
@@ -173,8 +197,11 @@ fn bench_all_to_all(b: &mut Bencher) {
 benchmark_group!(
     simple,
     bench_query,
+    bench_query_normalized,
+    bench_query_symmetric,
+    bench_query_normalized_symmetric,
     bench_all_to_all,
-    bench_dotprop_construction,
+    bench_rstarpt_construction,
     bench_arena_construction
 );
 benchmark_main!(simple);
