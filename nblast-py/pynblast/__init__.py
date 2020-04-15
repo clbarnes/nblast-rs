@@ -7,7 +7,7 @@ __email__ = "chrislloydbarnes@gmail.com"
 __version__ = "0.1.0"
 __version_info__ = tuple(int(n) for n in __version__.split("."))
 
-from typing import NewType, List, Dict, Tuple, Iterator, NamedTuple
+from typing import NewType, List, Dict, Tuple, Iterator, NamedTuple, Optional
 import csv
 
 import numpy as np
@@ -17,6 +17,12 @@ from .pynblast import ArenaWrapper
 __all__ = ["NblastArena", "ScoreMatrix"]
 
 Idx = NewType("Idx", int)
+
+
+def raise_if_none(result, *idxs):
+    if result is None:
+        raise IndexError(f"Index(es) not in arena: {idxs}")
+    return result
 
 
 class NblastArena:
@@ -34,27 +40,28 @@ class NblastArena:
         return self._impl.add_points(points.tolist())
 
     def query_target(
-        self, query_idx: Idx, target_idx: Idx, normalise=False, symmetric=False
+        self, query_idx: Idx, target_idx: Idx, normalize=False, symmetric=False
     ) -> float:
-        return self._impl.query_target(
-            query_idx, target_idx, bool(normalise), bool(symmetric)
+        out = self._impl.query_target(
+            query_idx, target_idx, bool(normalize), bool(symmetric)
         )
+        return raise_if_none(out, query_idx, target_idx)
 
     def queries_targets(
         self,
         query_idxs: List[Idx],
         target_idxs: List[Idx],
-        normalise=False,
+        normalize=False,
         symmetric=False,
     ) -> Dict[Tuple[Idx, Idx], float]:
         return self._impl.queries_targets(
-            query_idxs, target_idxs, bool(normalise), bool(symmetric)
+            query_idxs, target_idxs, bool(normalize), bool(symmetric)
         )
 
     def all_v_all(
-        self, normalise=False, symmetric=False
+        self, normalize=False, symmetric=False
     ) -> Dict[Tuple[Idx, Idx], float]:
-        return self._impl.all_v_all(bool(normalise), bool(symmetric))
+        return self._impl.all_v_all(bool(normalize), bool(symmetric))
 
     def __len__(self) -> int:
         return self._impl.len()
@@ -62,6 +69,16 @@ class NblastArena:
     def __iter__(self) -> Iterator[Idx]:
         for idx in range(len(self)):
             yield Idx(idx)
+
+    def self_hit(self, idx) -> float:
+        out = self._impl.self_hit(idx)
+        return raise_if_none(out, idx)
+
+    def tangents(self, idx) -> np.ndarray:
+        return np.array(raise_if_none(self._impl.tangents(idx), idx))
+
+    def points(self, idx) -> np.ndarray:
+        return np.array(raise_if_none(self._impl.points(idx), idx))
 
 
 def parse_interval(s):
