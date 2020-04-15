@@ -10,6 +10,7 @@ import numpy as np
 
 from pynblast import NblastArena, Idx, ScoreMatrix
 
+EPSILON = 0.001
 
 def test_read_smat(smat_path):
     dist_bins, dot_bins, arr = ScoreMatrix.read(smat_path)
@@ -34,9 +35,9 @@ def test_query(arena_points: Tuple[NblastArena, Dict[int, str]]):
     assert result
 
 
-def all_v_all(arena, points, normalise=False, symmetric=False):
+def all_v_all(arena, points, normalize=False, symmetric=False):
     q = list(points)
-    return arena.queries_targets(q, q, normalise, symmetric)
+    return arena.queries_targets(q, q, normalize, symmetric)
 
 
 def test_all_v_all(arena_points: Tuple[NblastArena, Dict[int, str]]):
@@ -45,7 +46,7 @@ def test_all_v_all(arena_points: Tuple[NblastArena, Dict[int, str]]):
 
 
 def test_normed(arena_points):
-    out = all_v_all(*arena_points, normalise=True)
+    out = all_v_all(*arena_points, normalize=True)
     for (q, t), v in out.items():
         if q == t:
             assert v == 1
@@ -69,13 +70,20 @@ def test_self_hit(arena, points):
     assert different_self == pytest.approx(true_self, 0.0001)
 
 
+def test_self_hit_calc(arena_points):
+    arena, points = arena_points
+    explicit = arena.self_hit(0)
+    implicit = arena.query_target(0, 0)
+    assert explicit == pytest.approx(implicit, abs=EPSILON)
+
+
 def test_normed_calc(arena_points):
     arena, points = arena_points
     self_hit = arena.query_target(0, 0)
     non_norm = arena.query_target(0, 1)
-    norm = arena.query_target(0, 1, normalise=True)
+    norm = arena.query_target(0, 1, normalize=True)
 
-    assert non_norm / self_hit == norm
+    assert non_norm / self_hit == pytest.approx(norm)
 
 
 def test_symmetric(arena_points):

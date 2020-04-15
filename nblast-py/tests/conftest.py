@@ -2,7 +2,6 @@ from typing import Tuple, List, Dict
 from pathlib import Path
 
 import pytest
-import numpy as np
 import pandas as pd
 
 import pynblast
@@ -29,7 +28,7 @@ def parse_points(fpath: Path) -> pd.DataFrame:
 @pytest.fixture
 def points() -> List[Tuple[str, pd.DataFrame]]:
     p_dir = DATA_DIR / "points"
-    return [(fpath.stem, parse_points(fpath)) for fpath in sorted(p_dir.iterdir())]
+    return sorted((fpath.stem, parse_points(fpath)) for fpath in p_dir.glob("*.csv"))
 
 
 @pytest.fixture
@@ -44,3 +43,16 @@ def arena_points(arena, points) -> Tuple[pynblast.NblastArena, Dict[int, str]]:
         idx = arena.add_points(df.to_numpy())
         idx_to_name[idx] = name
     return arena, idx_to_name
+
+
+@pytest.fixture
+def expected_nblast() -> pd.DataFrame:
+    """
+    Query on row index, target on column index.
+    """
+    p_dir = DATA_DIR / "points"
+    names = sorted(p.stem for p in p_dir.glob("*.csv"))
+    df = pd.read_csv(DATA_DIR / "kcscores.csv", index_col=0)
+    df = df[names]
+    df = df.loc[names]
+    return df.T
