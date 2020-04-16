@@ -2,9 +2,7 @@ use pyo3::exceptions;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 
-use nblast::{
-    table_to_fn, DistDot, NblastArena, NeuronIdx, Precision, RStarPointTangents,
-};
+use nblast::{table_to_fn, DistDot, NblastArena, NeuronIdx, Precision, RStarPointTangents};
 
 #[pyclass]
 pub struct ArenaWrapper {
@@ -79,12 +77,20 @@ impl ArenaWrapper {
         self.arena.self_hit(idx)
     }
 
-    pub fn points(&self, _py: Python, idx: NeuronIdx) -> Option<Vec<[Precision; 3]>> {
-        self.arena.points(idx)
+    pub fn points(&self, _py: Python, idx: NeuronIdx) -> Option<Vec<Vec<Precision>>> {
+        self.arena
+            .points(idx)
+            .map(|points| points.into_iter().map(|p| p.to_vec()).collect())
     }
 
-    pub fn tangents(&self, _py: Python, idx: NeuronIdx) -> Option<Vec<[Precision; 3]>> {
-        self.arena.tangents(idx).map(|vectors| vectors.map(|v| [*v.x, *v.y, *v.z]))  // TODO: fix this
+    pub fn tangents(&self, _py: Python, idx: NeuronIdx) -> Option<Vec<Vec<Precision>>> {
+        // TODO: better way to do this?
+        self.arena.tangents(idx).map(|vectors| {
+            vectors
+                .into_iter()
+                .map(|v| v.into_iter().map(|t| *t).collect())
+                .collect()
+        })
     }
 }
 
