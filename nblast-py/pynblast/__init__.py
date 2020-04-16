@@ -7,7 +7,7 @@ __email__ = "chrislloydbarnes@gmail.com"
 __version__ = "0.1.0"
 __version_info__ = tuple(int(n) for n in __version__.split("."))
 
-from typing import NewType, List, Dict, Tuple, Iterator, NamedTuple, Optional
+from typing import NewType, List, Dict, Tuple, Iterator, NamedTuple
 import csv
 
 import numpy as np
@@ -74,11 +74,31 @@ class NblastArena:
         out = self._impl.self_hit(idx)
         return raise_if_none(out, idx)
 
-    def tangents(self, idx) -> np.ndarray:
-        return np.array(raise_if_none(self._impl.tangents(idx), idx))
-
     def points(self, idx) -> np.ndarray:
         return np.array(raise_if_none(self._impl.points(idx), idx))
+
+    def tangents(self, idx, rectify=False) -> np.ndarray:
+        out = np.array(raise_if_none(self._impl.tangents(idx), idx))
+        return rectify_tangents(out, True) if rectify else out
+
+
+def rectify_tangents(orig: np.ndarray, inplace=False) -> np.ndarray:
+    """Normalises orientation of tangents.
+
+    Make the first nonzero element positive.
+    """
+    if not inplace:
+        orig = orig.copy()
+
+    prev_zero = np.full(len(orig), True, dtype=bool)
+    for this_col in orig.T:
+        to_flip = np.logical_and(prev_zero, this_col < 0)
+        orig[to_flip, :] *= -1
+        prev_zero = np.logical_and(prev_zero, this_col == 0)
+        if not prev_zero.any():
+            break
+
+    return orig
 
 
 def parse_interval(s):
@@ -127,7 +147,8 @@ class ScoreMatrix(NamedTuple):
                 row_data = [float(s) for s in row[1:]]
                 if len(row_data) != len(dot_bins):
                     raise ValueError(
-                        f"Line {idx} has {len(row_data)} values; expected {len(dot_bins)}"
+                        f"Line {idx} has {len(row_data)} values; "
+                        f"expected {len(dot_bins)}"
                     )
                 data.append(row_data)
 
