@@ -7,7 +7,7 @@ use bencher::{benchmark_group, benchmark_main, Bencher};
 use csv::ReaderBuilder;
 // extern crate nblast;
 
-use nblast::{table_to_fn, DistDot, NblastArena, RStarPointTangents, QueryNeuron, TargetNeuron};
+use nblast::{table_to_fn, DistDot, NblastArena, QueryNeuron, RStarPointTangents, TargetNeuron};
 
 const NAMES: [&str; 20] = [
     "ChaMARCM-F000586_seg002",
@@ -61,7 +61,8 @@ type Precision = f64;
 
 fn read_points(name: &str) -> Vec<[Precision; 3]> {
     let fpath = to_path(name);
-    let f = File::open(fpath.clone()).unwrap_or_else(|_| panic!("couldn't find file at {:?}", fpath));
+    let f =
+        File::open(fpath.clone()).unwrap_or_else(|_| panic!("couldn't find file at {:?}", fpath));
     let mut reader = ReaderBuilder::new().has_headers(true).from_reader(f);
     let mut out = Vec::default();
 
