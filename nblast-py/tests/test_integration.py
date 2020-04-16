@@ -11,8 +11,9 @@ EPSILON = 0.001
 
 def dict_to_df(idxs_to_score, idx_to_name):
     names = sorted(idx_to_name.values())
+    size = len(idx_to_name)
     df = pd.DataFrame(
-        np.full((len(idx_to_name), len(idx_to_name)), np.nan),
+        np.full((size, size), np.nan),
         index=names, columns=names
     )
     for (q_idx, t_idx), score in idxs_to_score.items():
@@ -24,10 +25,9 @@ def dict_to_df(idxs_to_score, idx_to_name):
     return df
 
 
-def test_vs_r(arena_points, expected_nblast):
-    arena, idx_to_name = arena_points
+def test_vs_r(arena_names, expected_nblast):
+    arena, idx_to_name = arena_names
     idxs_to_score = arena.all_v_all()
-    dict_to_df(idxs_to_score, idx_to_name)
 
     for (q_idx, t_idx), score in idxs_to_score.items():
         q_name = idx_to_name[q_idx]

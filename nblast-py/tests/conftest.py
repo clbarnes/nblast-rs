@@ -37,7 +37,8 @@ def arena(score_mat_tup):
 
 
 @pytest.fixture
-def arena_points(arena, points) -> Tuple[pynblast.NblastArena, Dict[int, str]]:
+def arena_names(arena, points) -> Tuple[pynblast.NblastArena, Dict[int, str]]:
+    """Tuple of (arena, {idx: "name"})"""
     idx_to_name = dict()
     for name, df in points:
         idx = arena.add_points(df.to_numpy())
@@ -56,3 +57,9 @@ def expected_nblast() -> pd.DataFrame:
     df = df[names]
     df = df.loc[names]
     return df.T
+
+
+@pytest.fixture
+def dotprops() -> List[Tuple[str, pd.DataFrame]]:
+    p_dir = DATA_DIR / "dotprops"
+    return sorted((p.stem, pd.read_csv(p, index_col=0)) for p in p_dir.glob("*.csv"))
