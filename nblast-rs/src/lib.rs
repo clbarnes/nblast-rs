@@ -52,7 +52,6 @@ pub trait QueryNeuron {
     fn points(&self) -> Vec<[Precision; 3]>;
 
     fn tangents(&self) -> Vec<Unit<Vector3<Precision>>>;
-
 }
 
 #[derive(Clone)]
@@ -80,6 +79,7 @@ pub fn center_points<'a>(
             *sum += v;
         }
     }
+
     for val in means.iter_mut() {
         *val /= points_vec.len() as Precision;
     }
@@ -87,27 +87,41 @@ pub fn center_points<'a>(
     points_vec.into_iter().map(subtract)
 }
 
-// TODO: finish impl, test performance
-// m @ mat.T
-// take vec with biggest val (normalize it?)
-// pub fn points_to_tangent_eig<'a>(points: impl Iterator<Item = &'a [Precision; 3]>) -> Option<Unit<Vector3<Precision>>> {
-//     let cols_vec: Vec<Vector3<Precision>> = center_points(points).map(|p| Vector3::from_column_slice(&p)).collect();
-//     let neighbor_mat = Matrix3x5::from_columns(&cols_vec);
-// }
-
-pub fn points_to_tangent_svd<'a>(
+pub fn points_to_tangent_eig<'a>(
     points: impl Iterator<Item = &'a [Precision; 3]>,
 ) -> Option<Unit<Vector3<Precision>>> {
     let cols_vec: Vec<Vector3<Precision>> = center_points(points)
         .map(|p| Vector3::from_column_slice(&p))
         .collect();
     let neighbor_mat = Matrix3x5::from_columns(&cols_vec);
-    let svd = neighbor_mat.svd(false, true);
-
-    // TODO: change to new_unchecked if possible (i.e. if SVD produces normalized right vectors)
-    svd.v_t
-        .map(|v_t| Unit::new_normalize(Vector3::from_iterator(v_t.column(0).iter().cloned())))
+    let inertia = neighbor_mat * neighbor_mat.transpose();
+    let eig = inertia.symmetric_eigen();
+    // TODO: new_unchecked
+    // TODO: better copying in general
+    Some(Unit::new_normalize(Vector3::from_iterator(
+        eig.eigenvectors
+            .column(eig.eigenvalues.argmax().0)
+            .iter()
+            .cloned(),
+    )))
 }
+
+// ! doesn't work
+// pub fn points_to_tangent_svd<'a>(
+//     points: impl Iterator<Item = &'a [Precision; 3]>,
+// ) -> Option<Unit<Vector3<Precision>>> {
+//     let cols_vec: Vec<Vector3<Precision>> = center_points(points)
+//         .map(|p| Vector3::from_column_slice(&p))
+//         .collect();
+//     let neighbor_mat = Matrix3x5::from_columns(&cols_vec);
+//     let svd = neighbor_mat.svd(false, true);
+
+//     let (idx, _val) = svd.singular_values.argmax();
+
+//     svd.v_t.map(|v_t| {
+//         Unit::new_normalize(Vector3::from_iterator(v_t.column(idx).iter().cloned()))
+//     })
+// }
 
 fn points_to_rtree(points: &[[Precision; 3]]) -> Result<RTree<PointWithIndex>, &'static str> {
     if points.len() < N_NEIGHBORS {
@@ -131,7 +145,7 @@ fn points_to_rtree_tangents(
     let mut tangents: Vec<Unit<Vector3<Precision>>> = Vec::with_capacity(rtree.size());
 
     for point in points.iter() {
-        match points_to_tangent_svd(
+        match points_to_tangent_eig(
             rtree
                 .nearest_neighbor_iter(&point)
                 .take(N_NEIGHBORS)
@@ -231,9 +245,9 @@ impl QueryNeuron for RStarPointTangents {
     ) -> Precision {
         let mut score_total: Precision = 0.0;
         for q_pt_idx in self.rtree.iter() {
-            score_total += score_fn(
-                &target.nearest_match_dist_dot(q_pt_idx.position(), &self.tangents[q_pt_idx.data]),
-            );
+            let dd = target.nearest_match_dist_dot(q_pt_idx.position(), &self.tangents[q_pt_idx.data]);
+            let score = score_fn(&dd);
+            score_total += score;
         }
         score_total
     }
@@ -258,10 +272,10 @@ impl TargetNeuron for RStarPointTangents {
         self.rtree
             .nearest_neighbor_iter_with_distance(point)
             .next()
-            .map(|(element, dist)| {
+            .map(|(element, dist2)| {
                 let this_tangent = self.tangents[element.data];
                 let dot = this_tangent.dot(tangent).abs();
-                DistDot { dist, dot }
+                DistDot { dist: dist2.sqrt(), dot }
             })
             .expect("impossible")
     }
@@ -283,7 +297,6 @@ impl TargetNeuron for RStarPointTangents {
     }
 }
 
-// TODO: check orientation of matrices, may need to transpose everything
 // ? consider using nalgebra's Point3 in PointWithIndex, for consistency
 // ^ can't implement rstar::Point for nalgebra::geometry::Point3 because of orphan rules
 // TODO: replace Precision with float generic
@@ -303,16 +316,16 @@ fn find_bin_binary(value: Precision, upper_bounds: &[Precision]) -> usize {
     }
 }
 
-fn find_bin_linear(value: Precision, upper_bounds: &[Precision]) -> usize {
-    let mut out = 0;
-    for bound in upper_bounds.iter() {
-        if &value < bound {
-            return out;
-        }
-        out += 1;
-    }
-    out - 1
-}
+// fn find_bin_linear(value: Precision, upper_bounds: &[Precision]) -> usize {
+//     let mut out = 0;
+//     for bound in upper_bounds.iter() {
+//         if &value < bound {
+//             return out;
+//         }
+//         out += 1;
+//     }
+//     out - 1
+// }
 
 /// Convert an empirically-derived table of NBLAST scores to a function
 /// which can be passed to dotprop queries.
@@ -335,8 +348,8 @@ pub fn table_to_fn(
     }
 
     move |dd: &DistDot| -> Precision {
-        let col_idx = find_bin_linear(dd.dot, &dot_thresholds);
-        let row_idx = find_bin_linear(dd.dist, &dist_thresholds);
+        let col_idx = find_bin_binary(dd.dot, &dot_thresholds);
+        let row_idx = find_bin_binary(dd.dist, &dist_thresholds);
 
         let lin_idx = row_idx * dot_thresholds.len() + col_idx;
         cells[lin_idx]
@@ -509,15 +522,118 @@ mod tests {
         RStarPointTangents::new(points).expect("Target construction failed");
     }
 
+    fn is_close(val1: Precision, val2: Precision) -> bool {
+        (val1 - val2).abs() < EPSILON
+    }
+
     fn assert_close(val1: Precision, val2: Precision) {
-        assert!((val1 - val2).abs() < EPSILON);
+        if !is_close(val1, val2) {
+            panic!("Not close:\n\t{:?}\n\t{:?}", val1, val2);
+        }
+    }
+
+    // #[test]
+    // fn unit_tangents_svd() {
+    //     let (points, _) = tangent_data();
+    //     let tangent = points_to_tangent_svd(points.iter()).expect("SVD failed");
+    //     assert_close(tangent.dot(&tangent), 1.0)
+    // }
+
+    #[test]
+    fn unit_tangents_eig() {
+        let (points, _) = tangent_data();
+        let tangent = points_to_tangent_eig(points.iter()).expect("eig failed");
+        assert_close(tangent.dot(&tangent), 1.0)
+    }
+
+    fn equivalent_tangents(
+        tan1: &Unit<Vector3<Precision>>,
+        tan2: &Unit<Vector3<Precision>>,
+    ) -> bool {
+        is_close(tan1.dot(tan2).abs(), 1.0)
+    }
+
+    fn tangent_data() -> (Vec<[Precision; 3]>, Unit<Vector3<Precision>>) {
+        // calculated from implementation known to be correct
+        let expected = Unit::new_normalize(
+            Vector3::from_column_slice(&[-0.939_392_2 ,  0.313_061_82,  0.139_766_18])
+        );
+
+        // points in first row of data/dotprops/ChaMARCM-F000586_seg002.csv
+        let points = vec![
+            [329.679_962_158_203, 72.718_803_405_761_7, 31.028_469_085_693_4],
+            [328.647_399_902_344, 73.046_119_689_941_4, 31.537_061_691_284_2],
+            [335.219_879_150_391, 70.710_479_736_328_1, 30.398_145_675_659_2],
+            [332.611_389_160_156, 72.322_929_382_324_2, 30.887_334_823_608_4],
+            [331.770_782_470_703, 72.434_440_612_793, 31.169_372_558_593_8],
+        ];
+
+        (points, expected)
+    }
+
+    // #[test]
+    // #[ignore]
+    // fn test_tangent_svd() {
+    //     let (points, expected) = tangent_data();
+    //     let tangent = points_to_tangent_svd(points.iter()).expect("Failed to create tangent");
+    //     println!("tangent is {:?}", tangent);
+    //     println!("  expected {:?}", expected);
+    //     assert!(equivalent_tangents(&tangent, &expected))
+    // }
+
+    #[test]
+    fn test_tangent_eig() {
+        let (points, expected) = tangent_data();
+        let tangent = points_to_tangent_eig(points.iter()).expect("Failed to create tangent");
+        if !equivalent_tangents(&tangent, &expected) {
+            panic!("Non-equivalent tangents:\n\t{:?}\n\t{:?}", tangent, expected)
+        }
+    }
+
+    /// dist_thresholds, dot_thresholds, values
+    fn score_mat() -> (Vec<Precision>, Vec<Precision>, Vec<Precision>) {
+        let dists = vec![10.0, 20.0, 30.0, 40.0, 50.0];
+        let dots = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+        let mut values = vec![];
+        let n_values = dots.len() * dists.len();
+        for v in 0..n_values {
+            values.push(v as Precision);
+        }
+        (dists, dots, values)
     }
 
     #[test]
-    fn tangents_are_unit() {
-        let points = make_points(&[0., 0., 0.], &[1_000_000., 0., 0.], N_NEIGHBORS);
-        let tangent = points_to_tangent_svd(points.iter()).expect("SVD failed");
-        assert_close(tangent.dot(&tangent), 1.0)
+    fn test_score_fn() {
+        let (dists, dots, values) = score_mat();
+        let func = table_to_fn(dists, dots, values);
+        assert_close(func(&DistDot{dist: 0.0, dot: 0.0}), 0.0);
+        assert_close(func(&DistDot{dist: 0.0, dot: 0.1}), 1.0);
+        assert_close(func(&DistDot{dist: 11.0, dot: 0.0}), 10.0);
+        assert_close(func(&DistDot{dist: 55.0, dot: 0.0}), 40.0);
+        assert_close(func(&DistDot{dist: 55.0, dot: 10.0}), 49.0);
+        assert_close(func(&DistDot{dist: 15.0, dot: 0.15}), 11.0);
+    }
+
+    // #[test]
+    // fn test_find_bin_linear() {
+    //     let dots = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+    //     assert_eq!(find_bin_linear(0.0, &dots), 0);
+    //     assert_eq!(find_bin_linear(0.15, &dots), 1);
+    //     assert_eq!(find_bin_linear(0.95, &dots), 9);
+    //     assert_eq!(find_bin_linear(-10.0, &dots), 0);
+    //     assert_eq!(find_bin_linear(10.0, &dots), 9);
+    //     assert_eq!(find_bin_linear(0.1, &dots), 1);
+    // }
+
+    #[test]
+    fn test_find_bin_binary() {
+        let dots = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+        assert_eq!(find_bin_binary(0.0, &dots), 0);
+        assert_eq!(find_bin_binary(0.15, &dots), 1);
+        assert_eq!(find_bin_binary(0.95, &dots), 9);
+        assert_eq!(find_bin_binary(-10.0, &dots), 0);
+        assert_eq!(find_bin_binary(10.0, &dots), 9);
+        assert_eq!(find_bin_binary(0.1, &dots), 1);
     }
 
     #[test]
