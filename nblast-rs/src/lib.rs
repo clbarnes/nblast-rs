@@ -3,6 +3,8 @@ use rstar::primitives::PointWithData;
 use rstar::RTree;
 use std::collections::HashMap;
 
+pub use nalgebra;
+
 // NOTE: will panic if this is changed due to use of Matrix3x5
 const N_NEIGHBORS: usize = 5;
 
@@ -16,6 +18,7 @@ pub enum Symmetry {
     Min,
     Max,
 }
+
 
 fn apply_symmetry(symmetry: &Symmetry, query_score: Precision, target_score: Precision) -> Precision {
     match symmetry {
@@ -679,11 +682,54 @@ mod tests {
                 < EPSILON
         );
         assert_eq!(
-            arena.query_target(q_idx, t_idx, false, &None),
-            arena.query_target(t_idx, q_idx, false, &None),
+            arena.query_target(q_idx, t_idx, false, &Some(Symmetry::ArithmeticMean)),
+            arena.query_target(t_idx, q_idx, false, &Some(Symmetry::ArithmeticMean)),
         );
 
         let out = arena.queries_targets(&[q_idx, t_idx], &[t_idx, q_idx], false, &None);
         assert_eq!(out.len(), 4);
+    }
+
+    fn test_symmetry(symmetry: &Symmetry, a: Precision, b: Precision) {
+        assert_close(
+            apply_symmetry(symmetry, a, b),
+            apply_symmetry(symmetry, b, a),
+        )
+    }
+
+    fn test_symmetry_multiple(symmetry: &Symmetry) {
+        for (a, b) in vec![
+            (0.3, 0.7),
+            (0.0, 0.7),
+            (-1.0, 0.7),
+            (100.0, 1000.0),
+        ].into_iter() {
+            test_symmetry(symmetry, a, b);
+        }
+    }
+
+    #[test]
+    fn symmetry_arithmetic() {
+        test_symmetry_multiple(&Symmetry::ArithmeticMean)
+    }
+
+    #[test]
+    fn symmetry_harmonic() {
+        test_symmetry_multiple(&Symmetry::HarmonicMean)
+    }
+
+    #[test]
+    fn symmetry_geometric() {
+        test_symmetry_multiple(&Symmetry::GeometricMean)
+    }
+
+    #[test]
+    fn symmetry_min() {
+        test_symmetry_multiple(&Symmetry::Min)
+    }
+
+    #[test]
+    fn symmetry_max() {
+        test_symmetry_multiple(&Symmetry::Max)
     }
 }

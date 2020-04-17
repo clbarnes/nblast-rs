@@ -22,6 +22,7 @@ classifier = [
 [dependencies]
 pyo3 = { version = "0.8.5", features = ["extension-module"] }
 nblast = { path = "../nblast-rs", version = "0.1.0" }
+nalgebra = "0.19.0"
 
 [lib]
 name = "pynblast"
