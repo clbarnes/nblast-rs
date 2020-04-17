@@ -8,7 +8,7 @@ import pytest
 import pandas as pd
 import numpy as np
 
-from pynblast import NblastArena, Idx, ScoreMatrix, rectify_tangents
+from pynblast import NblastArena, Idx, ScoreMatrix, rectify_tangents, Symmetry
 
 EPSILON = 0.001
 
@@ -73,9 +73,9 @@ def test_query(arena_names: Tuple[NblastArena, Dict[int, str]]):
     assert result
 
 
-def all_v_all(arena, names, normalize=False, symmetric=False):
+def all_v_all(arena, names, normalize=False, symmetry=None):
     q = list(names)
-    return arena.queries_targets(q, q, normalize, symmetric)
+    return arena.queries_targets(q, q, normalize, symmetry=symmetry)
 
 
 def test_all_v_all(arena_names: Tuple[NblastArena, Dict[int, str]]):
@@ -125,6 +125,24 @@ def test_normed_calc(arena_names):
 
 
 def test_symmetric(arena_names):
-    out = all_v_all(*arena_names, symmetric=True)
+    out = all_v_all(*arena_names, symmetry="arithmetic_mean")
     for (q, t), v in out.items():
         assert out[(t, q)] == v
+
+
+@pytest.mark.parametrize("sym", list(Symmetry))
+def test_symmetry_enum(arena_names, sym):
+    arena, _ = arena_names
+    out1 = arena.query_target(0, 1, symmetry=sym)
+    out2 = arena.query_target(1, 0, symmetry=sym)
+    assert out1 == out2
+
+
+def test_prepop_tangents(points, arena):
+    p = points[0][1].to_numpy()
+    idx0 = arena.add_points(p)
+    tangents = arena.tangents(idx0)
+    idx1 = arena.add_points_tangents(p, tangents)
+    assert arena.query_target(idx0, idx1, normalize=True) == pytest.approx(
+        1.0, abs=EPSILON
+    )
