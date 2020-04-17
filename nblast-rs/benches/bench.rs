@@ -146,6 +146,12 @@ fn bench_rstarpt_construction(b: &mut Bencher) {
     b.iter(|| RStarPointTangents::new(points.clone()).expect("couldn't parse"));
 }
 
+fn bench_rstarpt_construction_with_tangents(b: &mut Bencher) {
+    let points = read_points(NAMES[0]);
+    let tangents = RStarPointTangents::new(points.clone()).expect("couldn't parse").tangents();
+    b.iter(|| RStarPointTangents::new_with_tangents(points.clone(), tangents.clone()));
+}
+
 fn bench_arena_construction(b: &mut Bencher) {
     let score_fn = get_score_fn();
     let pointtangents: Vec<_> = NAMES
@@ -214,6 +220,7 @@ fn bench_all_to_all(b: &mut Bencher) {
 benchmark_group!(
     simple,
     bench_rstarpt_construction,
+    bench_rstarpt_construction_with_tangents,
     bench_query,
 );
 benchmark_group!(
