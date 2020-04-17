@@ -37,14 +37,6 @@ pub trait QueryNeuron {
         score_fn: &impl Fn(&DistDot) -> Precision,
     ) -> Precision;
 
-    fn query_normalized(
-        &self,
-        target: &impl TargetNeuron,
-        score_fn: &impl Fn(&DistDot) -> Precision,
-    ) -> Precision {
-        self.query(target, score_fn) / self.self_hit(score_fn)
-    }
-
     fn self_hit(&self, score_fn: &impl Fn(&DistDot) -> Precision) -> Precision {
         score_fn(&DistDot::default()) * self.len() as Precision
     }
@@ -199,19 +191,6 @@ pub trait TargetNeuron: QueryNeuron {
         point: &[Precision; 3],
         tangent: &Unit<Vector3<Precision>>,
     ) -> DistDot;
-
-    // TODO: implementations will be the same, but can't implement here due to lack of Sized constraint
-    fn query_symmetric(
-        &self,
-        target: &impl TargetNeuron,
-        score_fn: &impl Fn(&DistDot) -> Precision,
-    ) -> Precision;
-
-    fn query_normalized_symmetric(
-        &self,
-        target: &impl TargetNeuron,
-        score_fn: &impl Fn(&DistDot) -> Precision,
-    ) -> Precision;
 }
 
 #[derive(Clone)]
@@ -278,22 +257,6 @@ impl TargetNeuron for RStarPointTangents {
                 DistDot { dist: dist2.sqrt(), dot }
             })
             .expect("impossible")
-    }
-
-    fn query_symmetric(
-        &self,
-        target: &impl TargetNeuron,
-        score_fn: &impl Fn(&DistDot) -> Precision,
-    ) -> Precision {
-        (self.query(target, score_fn) + target.query(self, score_fn)) / 2.0
-    }
-
-    fn query_normalized_symmetric(
-        &self,
-        target: &impl TargetNeuron,
-        score_fn: &impl Fn(&DistDot) -> Precision,
-    ) -> Precision {
-        (self.query_normalized(target, score_fn) + target.query_normalized(self, score_fn)) / 2.0
     }
 }
 
@@ -659,31 +622,6 @@ mod tests {
         let self_hit = query.self_hit(&score_fn);
         println!("score: {:?}, self-hit {:?}", score, self_hit);
         assert_close(query.query(&query2, &score_fn), query.self_hit(&score_fn));
-    }
-
-    #[test]
-    fn alt_score_functions() {
-        let dist_thresholds = vec![1.0, 2.0];
-        let dot_thresholds = vec![0.5, 1.0];
-        let cells = vec![1.0, 2.0, 4.0, 8.0];
-
-        let score_fn = table_to_fn(dist_thresholds, dot_thresholds, cells);
-
-        let query = RStarPointTangents::new(make_points(&[0., 0., 0.], &[1.0, 0.0, 0.0], 10))
-            .expect("Construction failed");
-        let target = RStarPointTangents::new(make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10))
-            .expect("Construction failed");
-
-        assert_close(query.query_normalized(&query, &score_fn), 1.0);
-        assert_close(
-            query.query_symmetric(&target, &score_fn),
-            target.query_symmetric(&query, &score_fn),
-        );
-        assert_close(query.query_normalized_symmetric(&query, &score_fn), 1.0);
-        assert_close(
-            query.query_normalized_symmetric(&target, &score_fn),
-            target.query_normalized_symmetric(&query, &score_fn),
-        );
     }
 
     #[test]
