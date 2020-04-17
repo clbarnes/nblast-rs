@@ -9,6 +9,30 @@ const N_NEIGHBORS: usize = 5;
 pub type Precision = f64;
 type PointWithIndex = PointWithData<usize, [Precision; 3]>;
 
+pub enum Symmetry {
+    ArithmeticMean,
+    GeometricMean,
+    HarmonicMean,
+    Min,
+    Max,
+}
+
+fn apply_symmetry(symmetry: &Symmetry, query_score: Precision, target_score: Precision) -> Precision {
+    match symmetry {
+        Symmetry::ArithmeticMean => (query_score + target_score) / 2.0,
+        Symmetry::GeometricMean => (query_score.max(0.0) * target_score.max(0.0)).sqrt(),
+        Symmetry::HarmonicMean => {
+            if query_score.max(0.0) * target_score.max(0.0) == 0.0 {
+                0.0
+            } else {
+                2.0 / (1.0 / query_score + 1.0 / target_score)
+            }
+        },
+        Symmetry::Min => query_score.min(target_score),
+        Symmetry::Max => query_score.max(target_score),
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct DistDot {
     pub dist: Precision,
@@ -359,24 +383,26 @@ where
         &self,
         query_idx: NeuronIdx,
         target_idx: NeuronIdx,
-        normalized: bool,
-        symmetric: bool,
+        normalize: bool,
+        symmetry: &Option<Symmetry>,
     ) -> Option<Precision> {
         // ? consider separate methods
         let q = self.neurons_scores.get(query_idx)?;
         let t = self.neurons_scores.get(target_idx)?;
         let mut score = q.0.query(&t.0, &self.score_fn);
-        if normalized {
+        if normalize {
             score /= q.1;
         }
-        if symmetric {
-            let mut score2 = t.0.query(&q.0, &self.score_fn);
-            if normalized {
-                score2 /= t.1;
-            }
-            score = (score + score2) / 2.0;
+        match symmetry {
+            Some(s) => {
+                let mut score2 = t.0.query(&q.0, &self.score_fn);
+                if normalize {
+                    score2 /= t.1;
+                }
+                Some(apply_symmetry(s, score, score2))
+            },
+            _ => Some(score)
         }
-        Some(score)
     }
 
     pub fn queries_targets(
@@ -384,35 +410,32 @@ where
         query_idxs: &[NeuronIdx],
         target_idxs: &[NeuronIdx],
         normalize: bool,
-        symmetric: bool,
+        symmetry: &Option<Symmetry>,
     ) -> HashMap<(NeuronIdx, NeuronIdx), Precision> {
         let mut out = HashMap::with_capacity(query_idxs.len() * target_idxs.len());
 
+        // ? lots of unnecessary index operations
         for q_idx in query_idxs.iter() {
             for t_idx in target_idxs.iter() {
                 let key = (*q_idx, *t_idx);
                 if q_idx == t_idx {
-                    if q_idx < &self.neurons_scores.len() {
-                        let mut val = 1.0;
-                        if !normalize {
-                            val *= self
-                                .neurons_scores
-                                .get(*q_idx)
-                                .expect("Already checked length")
-                                .1;
-                        }
-                        out.insert(key, val);
-                    }
-                } else if symmetric {
+                    // if neurons are present and identical, 1.0 or self-hit (always symmetric)
+                    if let Some(ns) = self.neurons_scores.get(*q_idx) {
+                        out.insert(key, if normalize {1.0} else {ns.1});
+                    };
+                } else if symmetry.is_some() {
+                    // otherwise, if symmetric, use reverse query score if it's in the result set
+                    // or generate the result if not
                     match out.get(&(*t_idx, *q_idx)).map_or_else(
-                        || self.query_target(*q_idx, *t_idx, normalize, true),
+                        || self.query_target(*q_idx, *t_idx, normalize, symmetry),
                         |s| Some(*s),
                     ) {
                         Some(s) => out.insert(key, s),
                         _ => None,
                     };
                 } else {
-                    match self.query_target(*q_idx, *t_idx, normalize, false) {
+                    // otherwise, generate (asymmetric) result
+                    match self.query_target(*q_idx, *t_idx, normalize, &None) {
                         Some(s) => out.insert(key, s),
                         _ => None,
                     };
@@ -429,10 +452,10 @@ where
     pub fn all_v_all(
         &self,
         normalize: bool,
-        symmetric: bool,
+        symmetry: &Option<Symmetry>,
     ) -> HashMap<(NeuronIdx, NeuronIdx), Precision> {
         let idxs: Vec<NeuronIdx> = (0..self.len()).collect();
-        self.queries_targets(&idxs, &idxs, normalize, symmetric)
+        self.queries_targets(&idxs, &idxs, normalize, symmetry)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -642,25 +665,25 @@ mod tests {
         let t_idx = arena.add_neuron(target);
 
         let no_norm = arena
-            .query_target(q_idx, t_idx, false, false)
+            .query_target(q_idx, t_idx, false, &None)
             .expect("should exist");
         let self_hit = arena
-            .query_target(q_idx, q_idx, false, false)
+            .query_target(q_idx, q_idx, false, &None)
             .expect("should exist");
 
         assert!(
             arena
-                .query_target(q_idx, t_idx, true, false)
+                .query_target(q_idx, t_idx, true, &None)
                 .expect("should exist")
                 - no_norm / self_hit
                 < EPSILON
         );
         assert_eq!(
-            arena.query_target(q_idx, t_idx, false, true),
-            arena.query_target(t_idx, q_idx, false, true),
+            arena.query_target(q_idx, t_idx, false, &None),
+            arena.query_target(t_idx, q_idx, false, &None),
         );
 
-        let out = arena.queries_targets(&[q_idx, t_idx], &[t_idx, q_idx], false, false);
+        let out = arena.queries_targets(&[q_idx, t_idx], &[t_idx, q_idx], false, &None);
         assert_eq!(out.len(), 4);
     }
 }

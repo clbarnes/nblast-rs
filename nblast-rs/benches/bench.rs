@@ -7,7 +7,7 @@ use bencher::{benchmark_group, benchmark_main, Bencher};
 use csv::ReaderBuilder;
 // extern crate nblast;
 
-use nblast::{table_to_fn, DistDot, NblastArena, QueryNeuron, RStarPointTangents, TargetNeuron};
+use nblast::{table_to_fn, DistDot, NblastArena, QueryNeuron, RStarPointTangents};
 
 const NAMES: [&str; 20] = [
     "ChaMARCM-F000586_seg002",
@@ -141,30 +141,6 @@ fn bench_query(b: &mut Bencher) {
     b.iter(|| query.query(&target, &score_fn))
 }
 
-fn bench_query_normalized(b: &mut Bencher) {
-    let score_fn = get_score_fn();
-    let query = RStarPointTangents::new(read_points(NAMES[0])).expect("couldn't parse");
-    let target = RStarPointTangents::new(read_points(NAMES[1])).expect("couldn't parse");
-
-    b.iter(|| query.query_normalized(&target, &score_fn))
-}
-
-fn bench_query_symmetric(b: &mut Bencher) {
-    let score_fn = get_score_fn();
-    let query = RStarPointTangents::new(read_points(NAMES[0])).expect("couldn't parse");
-    let target = RStarPointTangents::new(read_points(NAMES[1])).expect("couldn't parse");
-
-    b.iter(|| query.query_symmetric(&target, &score_fn))
-}
-
-fn bench_query_normalized_symmetric(b: &mut Bencher) {
-    let score_fn = get_score_fn();
-    let query = RStarPointTangents::new(read_points(NAMES[0])).expect("couldn't parse");
-    let target = RStarPointTangents::new(read_points(NAMES[1])).expect("couldn't parse");
-
-    b.iter(|| query.query_normalized_symmetric(&target, &score_fn))
-}
-
 fn bench_rstarpt_construction(b: &mut Bencher) {
     let points = read_points(NAMES[0]);
     b.iter(|| RStarPointTangents::new(points.clone()).expect("couldn't parse"));
@@ -184,6 +160,46 @@ fn bench_arena_construction(b: &mut Bencher) {
     })
 }
 
+fn bench_arena_query(b: &mut Bencher) {
+    let mut arena = NblastArena::new(get_score_fn());
+    let p0 = read_points(NAMES[0]);
+    let idx0 = arena.add_neuron(RStarPointTangents::new(p0).expect("couldn't parse"));
+    let p1 = read_points(NAMES[1]);
+    let idx1 = arena.add_neuron(RStarPointTangents::new(p1).expect("couldn't parse"));
+
+    b.iter(|| arena.query_target(idx0, idx1, false, &None));
+}
+
+fn bench_arena_query_norm(b: &mut Bencher) {
+    let mut arena = NblastArena::new(get_score_fn());
+    let p0 = read_points(NAMES[0]);
+    let idx0 = arena.add_neuron(RStarPointTangents::new(p0).expect("couldn't parse"));
+    let p1 = read_points(NAMES[1]);
+    let idx1 = arena.add_neuron(RStarPointTangents::new(p1).expect("couldn't parse"));
+
+    b.iter(|| arena.query_target(idx0, idx1, true, &None));
+}
+
+fn bench_arena_query_geom(b: &mut Bencher) {
+    let mut arena = NblastArena::new(get_score_fn());
+    let p0 = read_points(NAMES[0]);
+    let idx0 = arena.add_neuron(RStarPointTangents::new(p0).expect("couldn't parse"));
+    let p1 = read_points(NAMES[1]);
+    let idx1 = arena.add_neuron(RStarPointTangents::new(p1).expect("couldn't parse"));
+
+    b.iter(|| arena.query_target(idx0, idx1, false, &Some(nblast::Symmetry::GeometricMean)));
+}
+
+fn bench_arena_query_norm_geom(b: &mut Bencher) {
+    let mut arena = NblastArena::new(get_score_fn());
+    let p0 = read_points(NAMES[0]);
+    let idx0 = arena.add_neuron(RStarPointTangents::new(p0).expect("couldn't parse"));
+    let p1 = read_points(NAMES[1]);
+    let idx1 = arena.add_neuron(RStarPointTangents::new(p1).expect("couldn't parse"));
+
+    b.iter(|| arena.query_target(idx0, idx1, true, &Some(nblast::Symmetry::GeometricMean)));
+}
+
 fn bench_all_to_all(b: &mut Bencher) {
     let mut arena = NblastArena::new(get_score_fn());
     let mut idxs = Vec::new();
@@ -192,17 +208,22 @@ fn bench_all_to_all(b: &mut Bencher) {
         idxs.push(arena.add_neuron(RStarPointTangents::new(points).expect("couldn't parse")));
     }
 
-    b.iter(|| arena.queries_targets(&idxs, &idxs, false, false));
+    b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None));
 }
 
 benchmark_group!(
     simple,
-    bench_query,
-    bench_query_normalized,
-    bench_query_symmetric,
-    bench_query_normalized_symmetric,
-    bench_all_to_all,
     bench_rstarpt_construction,
+    bench_query,
+);
+benchmark_group!(
+    arena,
+    bench_arena_query,
+    bench_arena_query_norm,
+    bench_arena_query_geom,
+    bench_arena_query_norm_geom,
+    bench_all_to_all,
     bench_arena_construction
 );
-benchmark_main!(simple);
+
+benchmark_main!(simple, arena);
