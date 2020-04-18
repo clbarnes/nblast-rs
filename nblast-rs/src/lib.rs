@@ -1,3 +1,52 @@
+//! Implementation of the NBLAST algorithm for quantifying neurons' morphological similarity.
+//! Originally published in
+//! [Costa et al. (2016)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4961245/)
+//! and implemented as part of the
+//! [NeuroAnatomy Toolbox](http://natverse.org/).
+//!
+//! # Algorithm
+//!
+//! Each neuron is passed in as a point cloud sample (the links between the points are not required).
+//! A tangent vector is calculated for each point, based on its location and that of its 4 nearest neighbors.
+//! To query the similarity of neuron `Q` to neuron `T`:
+//!
+//! - Take a point and its associated tangent in `Q`
+//!   - Find the nearest point in `T`, and its associated tangent
+//!   - Compute the distance between the two points
+//!   - Compute the absolute dot product of the two tangents
+//!   - Apply some empirically-derived function to the (distance, dot_product) tuple
+//!     - As published, this is the log probabity ratio of any pair belonging to closely related or unrelated neurons
+//! - Repeat for all points, summing the results
+//!
+//! The result is not easily comparable:
+//! it is highly dependent on the size of the point cloud
+//! and is not commutative, i.e. `f(Q, T) != f(T, Q)`.
+//!
+//! To make queries between two pairs of neurons comparable,
+//! the result can be normalized by the "self-hit" score of the query, i.e. `f(Q, Q)`.
+//!
+//! To make the result commutative, the forward `f(Q, T)` and backward `f(T, Q)` scores can be combined in some way.
+//! This library supports several means (arithmetic, harmonic, and geometric), the minimum, and the maximum.
+//! The choice will depend on the application.
+//! This can be applied after the scores are normalized.
+//!
+//! More information on the algorithm can be found
+//! [here](http://jefferislab.org/si/nblast).
+//!
+//! # Usage
+//!
+//! The [QueryNeuron](trait.QueryNeuron.html) and [TargetNeuron](trait.TargetNeuron.html) traits
+//! define types which can be compared with NBLAST.
+//! All `TargetNeuron`s are also `QueryNeuron`s.
+//!
+//! [QueryPointTangents](struct.QueryPointTangents.html) and
+//! [RStarPointTangents](struct.RStarPointTangents.html) implement these, respectively.
+//! Both can be created with pre-calculated tangents, or calculate them on instantiation.
+//!
+//! The [NblastArena](struct.NblastArena.html) contains a collection of `TargetNeuron`s
+//! and a function to apply to pointwise (distance, absolute dot product) pairs to generate
+//! a score for that point match, for convenient many-to-many comparisons.
+//! A pre-calculated table of point match scores can be converted into a function with [table_to_fn](fn.table_to_fn.html).
 use nalgebra::base::{Matrix3x5, Unit, Vector3};
 use rstar::primitives::PointWithData;
 use rstar::RTree;
@@ -364,10 +413,11 @@ fn find_bin_binary(value: Precision, upper_bounds: &[Precision]) -> usize {
 //     out - 1
 // }
 
-/// Convert an empirically-derived table of NBLAST scores to a function
-/// which can be passed to dotprop queries.
+/// Convert an empirically-derived table mapping pointwise distance and tangent absolute dot products
+/// to pointwise scores into a function which can be passed to neuron queries.
+/// These scores are then summed across all points in the query to give the raw NBLAST score.
 ///
-/// Cells are passed in dot-major order
+/// Cells are passed in dist-major order
 /// i.e. if the original table had distance bins in the left margin
 /// and dot product bins on the top margin,
 /// the cells should be given in row-major order.
