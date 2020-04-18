@@ -11,3 +11,6 @@ This repository acts as a cargo workspace, and contains two crates:
 
 In the root directory, `cargo build` / `cargo test` will only build/test the crate in `nblast-rs`.
 To build and test the python project in `nblast-py` (which should not be deployed as a crate), use `maturin develop` and `pytest` in the subdirectory.
+
+See [crates.io](https://crates.io/crates/rand) and [docs.rs](https://docs.rs/nblast) for the rust project,
+or [PyPI](https://pypi.org/project/pynblast) and [ReadTheDocs]() for the released projects,
