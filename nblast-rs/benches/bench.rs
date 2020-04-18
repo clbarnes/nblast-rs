@@ -148,7 +148,9 @@ fn bench_rstarpt_construction(b: &mut Bencher) {
 
 fn bench_rstarpt_construction_with_tangents(b: &mut Bencher) {
     let points = read_points(NAMES[0]);
-    let tangents = RStarPointTangents::new(points.clone()).expect("couldn't parse").tangents();
+    let tangents = RStarPointTangents::new(points.clone())
+        .expect("couldn't parse")
+        .tangents();
     b.iter(|| RStarPointTangents::new_with_tangents(points.clone(), tangents.clone()));
 }
 
