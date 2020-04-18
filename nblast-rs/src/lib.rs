@@ -8,9 +8,17 @@ pub use nalgebra;
 // NOTE: will panic if this is changed due to use of Matrix3x5
 const N_NEIGHBORS: usize = 5;
 
+/// Floating point precision type used internally
 pub type Precision = f64;
+
 type PointWithIndex = PointWithData<usize, [Precision; 3]>;
 
+/// Enumeration of methods to ensure that queries are symmetric/ commutative
+/// (i.e. f(q, t) = f(t, q)).
+/// Specific applications will require different methods.
+/// Geometric and harmonic means bound the output to be >= 0.0.
+/// Geometric mean may work best with non-normalized queries.
+/// Min may work if an unknown one of the query and target is incomplete.
 pub enum Symmetry {
     ArithmeticMean,
     GeometricMean,
@@ -19,8 +27,11 @@ pub enum Symmetry {
     Max,
 }
 
-
-fn apply_symmetry(symmetry: &Symmetry, query_score: Precision, target_score: Precision) -> Precision {
+fn apply_symmetry(
+    symmetry: &Symmetry,
+    query_score: Precision,
+    target_score: Precision,
+) -> Precision {
     match symmetry {
         Symmetry::ArithmeticMean => (query_score + target_score) / 2.0,
         Symmetry::GeometricMean => (query_score.max(0.0) * target_score.max(0.0)).sqrt(),
@@ -30,12 +41,16 @@ fn apply_symmetry(symmetry: &Symmetry, query_score: Precision, target_score: Pre
             } else {
                 2.0 / (1.0 / query_score + 1.0 / target_score)
             }
-        },
+        }
         Symmetry::Min => query_score.min(target_score),
         Symmetry::Max => query_score.max(target_score),
     }
 }
 
+/// The result of comparing two (point, tangent) tuples.
+/// Contains the Euclidean distance between the points,
+/// and the absolute dot product of the (unit) tangents,
+/// i.e. the absolute cosine of the angle between them.
 #[derive(Debug, Clone, Copy)]
 pub struct DistDot {
     pub dist: Precision,
@@ -51,31 +66,51 @@ impl Default for DistDot {
     }
 }
 
+/// Trait for objects which can be used as queries
+/// (not necessarily as targets) with NBLAST.
+/// See [TargetNeuron](trait.TargetNeuron.html).
 pub trait QueryNeuron {
+    /// Number of points in the neuron.
     fn len(&self) -> usize;
 
+    /// Whether the number of points is 0.
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    /// Calculate the raw NBLAST score by comparing this neuron to
+    /// the given target neuron, using the given score function.
+    /// The score function is applied to each point match distance and summed.
     fn query(
         &self,
         target: &impl TargetNeuron,
         score_fn: &impl Fn(&DistDot) -> Precision,
     ) -> Precision;
 
+    /// The raw NBLAST score if this neuron was compared with itself using the given score function.
+    /// Used for normalisation.
     fn self_hit(&self, score_fn: &impl Fn(&DistDot) -> Precision) -> Precision {
         score_fn(&DistDot::default()) * self.len() as Precision
     }
 
+    /// Return an owned copy of the points present in the neuron.
+    /// The order is not guaranteed, but is consistent with
+    /// [tangents](#method.tangents).
     fn points(&self) -> Vec<[Precision; 3]>;
 
+    /// Return an owned copy of the unit tangents present in the neuron.
+    /// The order is not guaranteed, but is consistent with
+    /// [points](#method.points).
     fn tangents(&self) -> Vec<Unit<Vector3<Precision>>>;
 }
 
+/// Minimal struct to use as the query (not the target) of an NBLAST
+/// comparison.
 #[derive(Clone)]
 pub struct QueryPointTangents {
+    /// Locations of points in point cloud.
     points: Vec<[Precision; 3]>,
+    /// Unit-length tangent vectors for each point in the cloud.
     tangents: Vec<Unit<Vector3<Precision>>>,
 }
 
@@ -87,7 +122,7 @@ fn subtract_points(p1: &[Precision; 3], p2: &[Precision; 3]) -> [Precision; 3] {
     result
 }
 
-pub fn center_points<'a>(
+fn center_points<'a>(
     points: impl Iterator<Item = &'a [Precision; 3]>,
 ) -> impl Iterator<Item = [Precision; 3]> {
     let mut points_vec = Vec::default();
@@ -106,7 +141,7 @@ pub fn center_points<'a>(
     points_vec.into_iter().map(subtract)
 }
 
-pub fn points_to_tangent_eig<'a>(
+fn points_to_tangent_eig<'a>(
     points: impl Iterator<Item = &'a [Precision; 3]>,
 ) -> Option<Unit<Vector3<Precision>>> {
     let cols_vec: Vec<Vector3<Precision>> = center_points(points)
@@ -126,7 +161,7 @@ pub fn points_to_tangent_eig<'a>(
 }
 
 // ! doesn't work
-// pub fn points_to_tangent_svd<'a>(
+// fn points_to_tangent_svd<'a>(
 //     points: impl Iterator<Item = &'a [Precision; 3]>,
 // ) -> Option<Unit<Vector3<Precision>>> {
 //     let cols_vec: Vec<Vector3<Precision>> = center_points(points)
@@ -179,6 +214,10 @@ fn points_to_rtree_tangents(
 }
 
 impl QueryPointTangents {
+    /// Calculates tangents from the given points.
+    /// Note that this constructs a spatial query in order to calculate the tangents,
+    /// and then throws it away: you may as well use a [TargetNeuron](trait.TargetNeuron.html)
+    /// type, with regards to performance.
     pub fn new(points: Vec<[Precision; 3]>) -> Result<Self, &'static str> {
         points_to_rtree_tangents(&points).map(|(_, tangents)| Self { points, tangents })
     }
@@ -212,7 +251,8 @@ impl QueryNeuron for QueryPointTangents {
 
 pub trait TargetNeuron: QueryNeuron {
     /// For a given point and tangent vector,
-    /// get the distance to its nearest neighbor and dot product with that neighbor's tangent
+    /// get the distance to its nearest point in the target, and the absolute dot product
+    /// with that neighbor's tangent (i.e. absolute cosine of the angle, as they are both unit-length).
     fn nearest_match_dist_dot(
         &self,
         point: &[Precision; 3],
@@ -220,6 +260,7 @@ pub trait TargetNeuron: QueryNeuron {
     ) -> DistDot;
 }
 
+/// Target neuron using an [R*-tree](https://en.wikipedia.org/wiki/R*_tree) for spatial queries.
 #[derive(Clone)]
 pub struct RStarPointTangents {
     rtree: RTree<PointWithIndex>,
@@ -227,10 +268,12 @@ pub struct RStarPointTangents {
 }
 
 impl RStarPointTangents {
+    /// Calculate tangents from constructed R*-tree.
     pub fn new(points: Vec<[Precision; 3]>) -> Result<Self, &'static str> {
         points_to_rtree_tangents(&points).map(|(rtree, tangents)| Self { rtree, tangents })
     }
 
+    /// Use pre-calculated tangents.
     pub fn new_with_tangents(
         points: Vec<[Precision; 3]>,
         tangents: Vec<Unit<Vector3<Precision>>>,
@@ -251,7 +294,8 @@ impl QueryNeuron for RStarPointTangents {
     ) -> Precision {
         let mut score_total: Precision = 0.0;
         for q_pt_idx in self.rtree.iter() {
-            let dd = target.nearest_match_dist_dot(q_pt_idx.position(), &self.tangents[q_pt_idx.data]);
+            let dd =
+                target.nearest_match_dist_dot(q_pt_idx.position(), &self.tangents[q_pt_idx.data]);
             let score = score_fn(&dd);
             score_total += score;
         }
@@ -281,7 +325,10 @@ impl TargetNeuron for RStarPointTangents {
             .map(|(element, dist2)| {
                 let this_tangent = self.tangents[element.data];
                 let dot = this_tangent.dot(tangent).abs();
-                DistDot { dist: dist2.sqrt(), dot }
+                DistDot {
+                    dist: dist2.sqrt(),
+                    dot,
+                }
             })
             .expect("impossible")
     }
@@ -346,6 +393,7 @@ pub fn table_to_fn(
     }
 }
 
+/// Struct for caching a number of neurons for multiple comparable NBLAST queries.
 #[derive(Clone)]
 pub struct NblastArena<N, F>
 where
@@ -375,6 +423,7 @@ where
         self.neurons_scores.len()
     }
 
+    /// Returns an index which is then used to make queries.
     pub fn add_neuron(&mut self, neuron: N) -> NeuronIdx {
         let idx = self.next_id();
         let score = neuron.self_hit(&self.score_fn);
@@ -382,6 +431,11 @@ where
         idx
     }
 
+    /// Make a single query using the given indexes.
+    /// `normalize` divides the result by the self-hit score of the query neuron.
+    /// `symmetry`, if `Some`, also calculates the reverse score
+    /// (normalizing it if necessary), and then applies a function to ensure
+    /// that the query is symmetric/ commutative.
     pub fn query_target(
         &self,
         query_idx: NeuronIdx,
@@ -403,11 +457,13 @@ where
                     score2 /= t.1;
                 }
                 Some(apply_symmetry(s, score, score2))
-            },
-            _ => Some(score)
+            }
+            _ => Some(score),
         }
     }
 
+    /// Make many queries using the Cartesian product of the query and target indices.
+    /// See [query_target](#method.query_target) for more details.
     pub fn queries_targets(
         &self,
         query_idxs: &[NeuronIdx],
@@ -424,7 +480,7 @@ where
                 if q_idx == t_idx {
                     // if neurons are present and identical, 1.0 or self-hit (always symmetric)
                     if let Some(ns) = self.neurons_scores.get(*q_idx) {
-                        out.insert(key, if normalize {1.0} else {ns.1});
+                        out.insert(key, if normalize { 1.0 } else { ns.1 });
                     };
                 } else if symmetry.is_some() {
                     // otherwise, if symmetric, use reverse query score if it's in the result set
@@ -452,6 +508,8 @@ where
         self.neurons_scores.get(idx).map(|(_, s)| *s)
     }
 
+    /// Query every neuron against every other neuron.
+    /// See [queries_targets](#method.queries_targets) for more details.
     pub fn all_v_all(
         &self,
         normalize: bool,
@@ -465,6 +523,7 @@ where
         self.neurons_scores.is_empty()
     }
 
+    /// Number of neurons in the arena.
     pub fn len(&self) -> usize {
         self.neurons_scores.len()
     }
@@ -544,17 +603,39 @@ mod tests {
 
     fn tangent_data() -> (Vec<[Precision; 3]>, Unit<Vector3<Precision>>) {
         // calculated from implementation known to be correct
-        let expected = Unit::new_normalize(
-            Vector3::from_column_slice(&[-0.939_392_2 ,  0.313_061_82,  0.139_766_18])
-        );
+        let expected = Unit::new_normalize(Vector3::from_column_slice(&[
+            -0.939_392_2,
+            0.313_061_82,
+            0.139_766_18,
+        ]));
 
         // points in first row of data/dotprops/ChaMARCM-F000586_seg002.csv
         let points = vec![
-            [329.679_962_158_203, 72.718_803_405_761_7, 31.028_469_085_693_4],
-            [328.647_399_902_344, 73.046_119_689_941_4, 31.537_061_691_284_2],
-            [335.219_879_150_391, 70.710_479_736_328_1, 30.398_145_675_659_2],
-            [332.611_389_160_156, 72.322_929_382_324_2, 30.887_334_823_608_4],
-            [331.770_782_470_703, 72.434_440_612_793, 31.169_372_558_593_8],
+            [
+                329.679_962_158_203,
+                72.718_803_405_761_7,
+                31.028_469_085_693_4,
+            ],
+            [
+                328.647_399_902_344,
+                73.046_119_689_941_4,
+                31.537_061_691_284_2,
+            ],
+            [
+                335.219_879_150_391,
+                70.710_479_736_328_1,
+                30.398_145_675_659_2,
+            ],
+            [
+                332.611_389_160_156,
+                72.322_929_382_324_2,
+                30.887_334_823_608_4,
+            ],
+            [
+                331.770_782_470_703,
+                72.434_440_612_793,
+                31.169_372_558_593_8,
+            ],
         ];
 
         (points, expected)
@@ -575,7 +656,10 @@ mod tests {
         let (points, expected) = tangent_data();
         let tangent = points_to_tangent_eig(points.iter()).expect("Failed to create tangent");
         if !equivalent_tangents(&tangent, &expected) {
-            panic!("Non-equivalent tangents:\n\t{:?}\n\t{:?}", tangent, expected)
+            panic!(
+                "Non-equivalent tangents:\n\t{:?}\n\t{:?}",
+                tangent, expected
+            )
         }
     }
 
@@ -595,12 +679,48 @@ mod tests {
     fn test_score_fn() {
         let (dists, dots, values) = score_mat();
         let func = table_to_fn(dists, dots, values);
-        assert_close(func(&DistDot{dist: 0.0, dot: 0.0}), 0.0);
-        assert_close(func(&DistDot{dist: 0.0, dot: 0.1}), 1.0);
-        assert_close(func(&DistDot{dist: 11.0, dot: 0.0}), 10.0);
-        assert_close(func(&DistDot{dist: 55.0, dot: 0.0}), 40.0);
-        assert_close(func(&DistDot{dist: 55.0, dot: 10.0}), 49.0);
-        assert_close(func(&DistDot{dist: 15.0, dot: 0.15}), 11.0);
+        assert_close(
+            func(&DistDot {
+                dist: 0.0,
+                dot: 0.0,
+            }),
+            0.0,
+        );
+        assert_close(
+            func(&DistDot {
+                dist: 0.0,
+                dot: 0.1,
+            }),
+            1.0,
+        );
+        assert_close(
+            func(&DistDot {
+                dist: 11.0,
+                dot: 0.0,
+            }),
+            10.0,
+        );
+        assert_close(
+            func(&DistDot {
+                dist: 55.0,
+                dot: 0.0,
+            }),
+            40.0,
+        );
+        assert_close(
+            func(&DistDot {
+                dist: 55.0,
+                dot: 10.0,
+            }),
+            49.0,
+        );
+        assert_close(
+            func(&DistDot {
+                dist: 15.0,
+                dot: 0.15,
+            }),
+            11.0,
+        );
     }
 
     // #[test]
@@ -698,12 +818,7 @@ mod tests {
     }
 
     fn test_symmetry_multiple(symmetry: &Symmetry) {
-        for (a, b) in vec![
-            (0.3, 0.7),
-            (0.0, 0.7),
-            (-1.0, 0.7),
-            (100.0, 1000.0),
-        ].into_iter() {
+        for (a, b) in vec![(0.3, 0.7), (0.0, 0.7), (-1.0, 0.7), (100.0, 1000.0)].into_iter() {
             test_symmetry(symmetry, a, b);
         }
     }
