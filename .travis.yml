@@ -1,9 +1,10 @@
 language: python
+os: linux
+dist: xenial
 
 stages:
   - test
-  - name: deploy
-    if: tag =~ /^(one|two)-three$/
+  - deploy
 env:
   global:
   - TRAVIS_RUST_VERSION=nightly-2020-02-03
