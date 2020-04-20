@@ -17,7 +17,6 @@ rust_test: &rust_test
     - source ci/travis/setup_rust.sh
   script:
     - cargo test --verbose
-    - cargo clippy --all -- -D warnings
 
 python_test: &python_test
   stage: test
