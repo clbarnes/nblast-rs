@@ -40,6 +40,7 @@ class Symmetry(StrEnum):
     i.e. the name of a function to apply to the forward and reverse scores
     together to generate a comparable score.
     """
+
     ARITHMETIC_MEAN = "arithmetic_mean"
     GEOMETRIC_MEAN = "geometric_mean"
     HARMONIC_MEAN = "harmonic_mean"
