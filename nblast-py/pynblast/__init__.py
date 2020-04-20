@@ -6,6 +6,7 @@ __author__ = """Chris L. Barnes"""
 __email__ = "chrislloydbarnes@gmail.com"
 
 from .pynblast import get_version
+
 __version__ = get_version()
 __version_info__ = tuple(int(n) for n in __version__.split("."))
 
