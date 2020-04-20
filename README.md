@@ -14,3 +14,9 @@ To build and test the python project in `nblast-py` (which should not be deploye
 
 See [crates.io](https://crates.io/crates/rand) and [docs.rs](https://docs.rs/nblast) for the rust project,
 or [PyPI](https://pypi.org/project/pynblast) and [ReadTheDocs]() for the released projects,
+
+
+## Notes
+
+Installing the python wheel from a source distribution (sdist) is currently not supported and will likely fail.
+Clone this repo and build a wheel locally if wheels are not available for your platform.
