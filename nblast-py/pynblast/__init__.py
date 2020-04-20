@@ -4,7 +4,9 @@
 
 __author__ = """Chris L. Barnes"""
 __email__ = "chrislloydbarnes@gmail.com"
-__version__ = "0.1.0"
+
+from .pynblast import get_version
+__version__ = get_version()
 __version_info__ = tuple(int(n) for n in __version__.split("."))
 
 from .util import rectify_tangents, Idx, Symmetry

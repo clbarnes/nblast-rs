@@ -136,5 +136,10 @@ impl ArenaWrapper {
 fn pynblast(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ArenaWrapper>()?;
 
+    #[pyfn(m, "get_version")]
+    fn get_version(_py: Python) -> String {
+        env!("CARGO_PKG_VERSION").to_string()
+    }
+
     Ok(())
 }
