@@ -15,8 +15,20 @@ To build and test the python project in `nblast-py` (which should not be deploye
 See [crates.io](https://crates.io/crates/rand) and [docs.rs](https://docs.rs/nblast) for the rust project,
 or [PyPI](https://pypi.org/project/pynblast) and [ReadTheDocs]() for the released projects,
 
+## Development
+
+Use [rustup](https://rustup.rs/) to install the rust compiler specified in [rust-toolchain](./rust-toolchain).
+
+### nblast-rs
+
+- Use `cargo build` / `cargo test` / `cargo bench` etc.
+
+### nblast-py
+
+- Install the development dependencies with `pip install -r nblast-py/requirements.txt`
+- Compile the rust component and install locally with `maturin develop` (add `--release` for an optimised build)
 
 ## Notes
 
 Installing the python wheel from a source distribution (sdist) is currently not supported and will likely fail.
-Clone this repo and build a wheel locally if wheels are not available for your platform.
+See [here](./nblast-py/README.rst) for details on how to build locally if wheels are not available for your platform.
