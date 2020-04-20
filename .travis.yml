@@ -37,6 +37,9 @@ jobs:
     - <<: *rust_test
       name: "test rust"
     - <<: *python_test
+      name: "test py36"
+      python: 3.6
+    - <<: *python_test
       name: "test py37"
       python: 3.7
     - <<: *python_test
@@ -50,6 +53,7 @@ jobs:
           sources:
             - deadsnakes
           packages:
+            - python3.6
             - python3.7
             - python3.8
       before_install:
@@ -58,7 +62,7 @@ jobs:
         - cd nblast-py
         - pip install $(grep '^maturin' requirements.txt)
       script:
-        - maturin publish -u $PYPI_USERNAME -p $PYPI_PASSWORD -i python3.7 -i python3.8
+        - maturin publish -u $PYPI_USERNAME -p $PYPI_PASSWORD -i python3.8 -i python3.7 -i python3.6
     - # stage: deploy  # deploy stage is implied
       name: "deploy to crates.io"
       if: tag =~ /^rs-v\d+.*/
