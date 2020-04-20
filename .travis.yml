@@ -3,38 +3,65 @@ language: python
 stages:
   - test
   - name: deploy
-    if: tag IS present
+    if: tag =~ /^(one|two)-three$/
 env:
   global:
   - TRAVIS_RUST_VERSION=nightly-2020-02-03
   - RUST_BACKTRACE=1
   - PYPI_USERNAME=clbarnes
 
-test_template: &test_template
+rust_test: &rust_test
   stage: test
   before_install:
-    source ./ci/travis/setup_rust.sh
-  install:
-    pip install -U maturin pytest
+    - source ci/travis/setup_rust.sh
   script:
-    ./ci/travis/test.sh
+    - cargo test --verbose
+    - cargo clippy --all -- -D warnings
 
-deploy_template: &deploy_template
-  stage: deploy
+python_test: &python_test
+  stage: test
   before_install:
-    source ./ci/travis/setup_rust.sh
+    - source ci/travis/setup_rust.sh
+    - cd nblast-py
+    - pip install -r requirements.txt
   install:
-    pip install -U maturin
+    - maturin develop
   script:
-    ./ci/travis/deploy.sh
+    #- cargo test --verbose  # "linking with cc failed"?
+    - pytest -v
+    - flake8 pynblast tests
+    - black --check pynblast tests
 
 jobs:
   include:
-    - <<: *test_template
+    - <<: *rust_test
+      name: "test rust"
+    - <<: *python_test
+      name: "test py37"
       python: 3.7
-    - <<: *test_template
+    - <<: *python_test
+      name: "test py38"
       python: 3.8
-    - <<: *deploy_template
-      python: 3.7
-    - <<: *deploy_template
-      python: 3.8
+    - stage: deploy
+      name: "deploy to PyPI"
+      if: tag =~ /^py-v\d+.*/
+      addons:
+        apt:
+          sources:
+            - deadsnakes
+          packages:
+            - python3.7
+            - python3.8
+      before_install:
+        - source ci/travis/setup_rust.sh
+      install:
+        - pip install $(grep '^maturin' requirements.txt)
+      script:
+        - maturin publish -u $PYPI_USERNAME -p $PYPI_PASSWORD -i python3.7 -i python3.8
+    - # stage: deploy  # deploy stage is implied
+      name: "deploy to crates.io"
+      if: tag =~ /^rs-v\d+.*/
+      before_install:
+        - source ci/travis/setup_rust.sh
+      script:
+        - cargo publish --token $CARGO_TOKEN
