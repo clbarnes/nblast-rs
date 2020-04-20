@@ -55,6 +55,7 @@ jobs:
       before_install:
         - source ci/travis/setup_rust.sh
       install:
+        - cd nblast-py
         - pip install $(grep '^maturin' requirements.txt)
       script:
         - maturin publish -u $PYPI_USERNAME -p $PYPI_PASSWORD -i python3.7 -i python3.8
