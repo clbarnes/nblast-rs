@@ -35,6 +35,11 @@ def raise_if_none(result, *idxs):
 
 
 class Symmetry(StrEnum):
+    """Enum of strategies for making an NBLAST query symmetric.
+
+    i.e. the name of a function to apply to the forward and reverse scores
+    together to generate a comparable score.
+    """
     ARITHMETIC_MEAN = "arithmetic_mean"
     GEOMETRIC_MEAN = "geometric_mean"
     HARMONIC_MEAN = "harmonic_mean"
@@ -45,7 +50,7 @@ class Symmetry(StrEnum):
 def rectify_tangents(orig: np.ndarray, inplace=False) -> np.ndarray:
     """Normalises orientation of tangents.
 
-    Make the first nonzero element positive.
+    Makes the first nonzero element positive.
     """
     if not inplace:
         orig = orig.copy()
