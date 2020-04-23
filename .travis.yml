@@ -32,6 +32,17 @@ python_test: &python_test
     - flake8 pynblast tests
     - black --check pynblast tests
 
+bash_deploy: &bash_deploy
+  stage: deploy
+  if: tag =~ /^py-v\d+.*/
+  before_install:
+    - source ci/travis/setup_rust.sh
+  install:
+    - cd nblast-py
+    - pip install $(grep '^maturin' requirements.txt)
+  script:
+    - maturin publish -u $PYPI_USERNAME -p $PYPI_PASSWORD -i python3.8 -i python3.7 -i python3.6
+
 jobs:
   include:
     - <<: *rust_test
@@ -45,9 +56,8 @@ jobs:
     - <<: *python_test
       name: "test py38"
       python: 3.8
-    - stage: deploy
-      name: "deploy to PyPI"
-      if: tag =~ /^py-v\d+.*/
+    - <<: *bash_deploy
+      name: "Linux PyPI"
       addons:
         apt:
           sources:
@@ -56,13 +66,15 @@ jobs:
             - python3.6
             - python3.7
             - python3.8
-      before_install:
-        - source ci/travis/setup_rust.sh
-      install:
-        - cd nblast-py
-        - pip install $(grep '^maturin' requirements.txt)
-      script:
-        - maturin publish -u $PYPI_USERNAME -p $PYPI_PASSWORD -i python3.8 -i python3.7 -i python3.6
+    - <<: *bash_deploy
+      os: osx
+      name: "OSX PyPI"
+      addons:
+        homebrew:
+          packages:
+            - python3.6
+            - python3.7
+            - python3.8
     - # stage: deploy  # deploy stage is implied
       name: "deploy to crates.io"
       if: tag =~ /^rs-v\d+.*/
