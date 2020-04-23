@@ -10,6 +10,7 @@ class NblastArena:
     """
     Class for creating and keeping track of many neurons for comparison with NBLAST.
     """
+
     DEFAULT_K = 20
 
     def __init__(
