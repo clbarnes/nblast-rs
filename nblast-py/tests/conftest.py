@@ -1,5 +1,6 @@
-from typing import Tuple, List, Dict
+from typing import Tuple, List, Dict, Optional
 from pathlib import Path
+import json
 
 import pytest
 import pandas as pd
@@ -33,7 +34,7 @@ def points() -> List[Tuple[str, pd.DataFrame]]:
 
 @pytest.fixture
 def arena(score_mat_tup):
-    return pynblast.NblastArena(*score_mat_tup)
+    return pynblast.NblastArena(*score_mat_tup, k=5)
 
 
 @pytest.fixture
@@ -63,3 +64,14 @@ def expected_nblast() -> pd.DataFrame:
 def dotprops() -> List[Tuple[str, pd.DataFrame]]:
     p_dir = DATA_DIR / "dotprops"
     return sorted((p.stem, pd.read_csv(p, index_col=0)) for p in p_dir.glob("*.csv"))
+
+
+@pytest.fixture
+def skeleton() -> List[Tuple[int, Optional[int], float, float, float]]:
+    with open(DATA_DIR / "arbors" / "example.json") as f:
+        return [tuple(row) for row in json.load(f)["data"]]
+
+
+@pytest.fixture
+def resampler(skeleton) -> pynblast.ResamplingArbor:
+    return pynblast.ResamplingArbor(skeleton)

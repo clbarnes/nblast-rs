@@ -3,6 +3,9 @@ use pyo3::prelude::*;
 use std::collections::HashMap;
 use core::fmt::Debug;
 
+use neurarbor::slab_tree::{Tree, NodeId};
+use neurarbor::{TopoArbor, Location, edges_to_tree_with_data, resample_tree_points};
+
 use nblast::nalgebra::base::{Vector3, Unit};
 use nblast::{table_to_fn, DistDot, NblastArena, NeuronIdx, Precision, RStarPointTangents, Symmetry};
 
@@ -134,9 +137,73 @@ impl ArenaWrapper {
     }
 }
 
+#[pyclass]
+struct ResamplingArbor {
+    tree: Tree<(usize, [Precision; 3])>,
+    tnid_to_id: HashMap<usize, NodeId>,
+}
+
+#[pymethods]
+impl ResamplingArbor {
+    #[new]
+    fn __new__(
+        obj: &PyRawObject,
+        table: Vec<(usize, Option<usize>, Precision, Precision, Precision)>,
+    ) -> PyResult<()> {
+        let edges_with_data: Vec<_> = table.iter().map(|(child, parent, x, y, z)| (*child, *parent, [*x, *y, *z])).collect();
+        let (tree, tnid_to_id) = edges_to_tree_with_data(&edges_with_data)
+            .map_err(
+                |_| PyErr::new::<exceptions::ValueError, _>("Symmetry type not recognised")
+            )?;
+        Ok(obj.init(Self { tree, tnid_to_id }))
+    }
+
+    fn prune_at(&mut self, ids: Vec<usize>) -> usize {
+        let inner_ids: Vec<_> = ids.iter().filter_map(|k| self.tnid_to_id.get(k).map(|v| *v)).collect();
+        self.tree.prune_at(&inner_ids).len()
+    }
+
+    fn prune_branches_containing(&mut self, ids: Vec<usize>) -> usize {
+        let inner_ids: Vec<_> = ids.iter().filter_map(|k| self.tnid_to_id.get(k).map(|v| *v)).collect();
+        self.tree.prune_branches_containing(&inner_ids).len()
+    }
+
+    fn prune_below_strahler(&mut self, threshold: usize) -> usize {
+        self.tree.prune_below_strahler(threshold).len()
+    }
+
+    fn prune_beyond_branches(&mut self, threshold: usize) -> usize {
+        self.tree.prune_beyond_branches(threshold).len()
+    }
+
+    fn prune_beyond_steps(&mut self, threshold: usize) -> usize {
+        self.tree.prune_beyond_steps(threshold).len()
+    }
+
+    fn points(&self, resample: Option<Precision>) -> Vec<Vec<Precision>> {
+        if let Some(len) = resample {
+            resample_tree_points(&self.tree, len).into_iter().map(|a| a.to_vec()).collect()
+        } else{
+            self.tree.root().unwrap().traverse_pre_order().map(|n| n.data().location().to_vec()).collect()
+        }
+    }
+
+    fn skeleton(&self) -> Vec<(usize, Option<usize>, Precision, Precision, Precision)> {
+        self.tree.root().unwrap().traverse_pre_order().map(|n| {
+            let (tnid, loc) = n.data();
+            (*tnid, n.parent().map(|p| p.data().0), loc[0], loc[1], loc[2])
+        }).collect()
+    }
+
+    fn root(&self) -> usize {
+        self.tree.root().unwrap().data().0
+    }
+}
+
 #[pymodule]
 fn pynblast(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ArenaWrapper>()?;
+    m.add_class::<ResamplingArbor>()?;
 
     #[pyfn(m, "get_version")]
     fn get_version(_py: Python) -> String {
