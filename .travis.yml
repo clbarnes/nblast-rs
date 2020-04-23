@@ -81,4 +81,5 @@ jobs:
       before_install:
         - source ci/travis/setup_rust.sh
       script:
+        - cd nblast-rs
         - cargo publish --token $CARGO_TOKEN
