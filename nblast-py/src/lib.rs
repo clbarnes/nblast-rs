@@ -10,6 +10,7 @@ use nblast::{table_to_fn, DistDot, NblastArena, NeuronIdx, Precision, RStarPoint
 pub struct ArenaWrapper {
     // TODO: can this box be avoided?
     arena: NblastArena<RStarPointTangents, Box<dyn Fn(&DistDot) -> Precision>>,
+    k: usize,
 }
 
 fn vec_to_array3<T: Sized + Copy>(v: &Vec<T>) -> [T; 3] {
@@ -39,16 +40,17 @@ impl ArenaWrapper {
         dist_thresholds: Vec<f64>,
         dot_thresholds: Vec<f64>,
         cells: Vec<f64>,
+        k: usize,
     ) -> PyResult<()> {
         let score_fn = table_to_fn(dist_thresholds, dot_thresholds, cells);
         Ok(obj.init(Self {
-            arena: NblastArena::new(Box::new(score_fn)),
+            arena: NblastArena::new(Box::new(score_fn)), k,
         }))
     }
 
     fn add_points(&mut self, _py: Python, points: Vec<Vec<f64>>) -> PyResult<usize> {
         // TODO: avoid this copy?
-        let neuron = RStarPointTangents::new(points.iter().map(vec_to_array3).collect())
+        let neuron = RStarPointTangents::new(points.iter().map(vec_to_array3).collect(), self.k)
             .map_err(|s| PyErr::new::<exceptions::RuntimeError, _>(s))?;
         Ok(self.arena.add_neuron(neuron))
     }

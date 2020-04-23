@@ -10,12 +10,17 @@ class NblastArena:
     """
     Class for creating and keeping track of many neurons for comparison with NBLAST.
     """
+    DEFAULT_K = 20
 
     def __init__(
-        self, dist_bins: List[float], dot_bins: List[float], score_mat: np.ndarray
+        self,
+        dist_bins: List[float],
+        dot_bins: List[float],
+        score_mat: np.ndarray,
+        k=None,
     ):
         """
-        The arguments describe a lookup table which is used to convert
+        The required arguments describe a lookup table which is used to convert
         ``(distance, abs_dot_product)`` tuples into a score for a single
         point match.
         The ``*_bins`` arguments describe the upper bounds of the bins
@@ -30,11 +35,16 @@ class NblastArena:
         >>> arena = NblastArena(df.index, df.columns, df.to_numpy())
 
         See the ``ScoreMatrix`` namedtuple for convenience.
+
+        ``k`` gives the number of points to use when calculating tangents.
+        If None, the NblastArena.DEFAULT_K value is used.
         """
+        self.k = k or self.DEFAULT_K
+
         if score_mat.shape != (len(dist_bins), len(dot_bins)):
             raise ValueError("Bin thresholds do not match score matrix")
         score_vec = score_mat.flatten().tolist()
-        self._impl = ArenaWrapper(dist_bins, dot_bins, score_vec)
+        self._impl = ArenaWrapper(dist_bins, dot_bins, score_vec, self.k)
 
     def add_points(self, points: np.ndarray) -> Idx:
         """Add an Nx3 point cloud to the arena representing a neuron.
