@@ -66,15 +66,6 @@ jobs:
             - python3.6
             - python3.7
             - python3.8
-    - <<: *bash_deploy
-      os: osx
-      name: "OSX PyPI"
-      addons:
-        homebrew:
-          packages:
-            - python3.6
-            - python3.7
-            - python3.8
     - # stage: deploy  # deploy stage is implied
       name: "deploy to crates.io"
       if: tag =~ /^rs-v\d+.*/
