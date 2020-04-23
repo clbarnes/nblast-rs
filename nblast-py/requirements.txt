@@ -2,7 +2,7 @@
 maturin==0.8.0
 
 # run
-numpy==1.18.2
+numpy==1.18.3
 
 # test
 pandas==1.0.3
