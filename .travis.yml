@@ -12,7 +12,6 @@ env:
   global:
   - TRAVIS_RUST_VERSION=nightly-2020-02-03
   - RUST_BACKTRACE=1
-  - PYPI_USERNAME=clbarnes
 
 rust_test: &rust_test
   stage: test
