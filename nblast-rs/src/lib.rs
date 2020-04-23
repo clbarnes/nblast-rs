@@ -47,7 +47,7 @@
 //! and a function to apply to pointwise (distance, absolute dot product) pairs to generate
 //! a score for that point match, for convenient many-to-many comparisons.
 //! A pre-calculated table of point match scores can be converted into a function with [table_to_fn](fn.table_to_fn.html).
-use nalgebra::base::{Matrix3x5, Unit, Vector3};
+use nalgebra::base::{Matrix3, Unit, Vector3};
 use rstar::primitives::PointWithData;
 use rstar::RTree;
 use std::collections::HashMap;
@@ -55,7 +55,7 @@ use std::collections::HashMap;
 pub use nalgebra;
 
 // NOTE: will panic if this is changed due to use of Matrix3x5
-const N_NEIGHBORS: usize = 5;
+// const N_NEIGHBORS: usize = 5;
 
 /// Floating point precision type used internally
 pub type Precision = f64;
@@ -190,14 +190,35 @@ fn center_points<'a>(
     points_vec.into_iter().map(subtract)
 }
 
+fn dot(a: &[Precision], b: &[Precision]) -> Precision {
+    a.iter().zip(b.iter()).fold(0.0, |sum, (ax, bx)| sum + ax * bx)
+}
+
+/// Calculate inertia from iterator of points.
+/// This is an implementation of matrix * matrix.transpose(),
+/// to sidestep the fixed-size constraints of linalg's built-in classes.
+/// Only calculates the lower triangle and diagonal.
+fn calc_inertia<'a>(points: impl Iterator<Item = &'a [Precision; 3]>) -> Matrix3<Precision> {
+    let mut xs = Vec::default();
+    let mut ys = Vec::default();
+    let mut zs = Vec::default();
+    for point in center_points(points) {
+        xs.push(point[0]);
+        ys.push(point[1]);
+        zs.push(point[2]);
+    }
+    Matrix3::new(
+        dot(&xs, &xs), 0.0, 0.0,
+        dot(&ys, &xs), dot(&ys, &ys), 0.0,
+        dot(&zs, &xs), dot(&zs, &ys), dot(&zs, &zs),
+    )
+}
+
 fn points_to_tangent_eig<'a>(
     points: impl Iterator<Item = &'a [Precision; 3]>,
 ) -> Option<Unit<Vector3<Precision>>> {
-    let cols_vec: Vec<Vector3<Precision>> = center_points(points)
-        .map(|p| Vector3::from_column_slice(&p))
-        .collect();
-    let neighbor_mat = Matrix3x5::from_columns(&cols_vec);
-    let inertia = neighbor_mat * neighbor_mat.transpose();
+    let points_vec: Vec<_> = points.collect();
+    let inertia = calc_inertia(points_vec.iter().cloned());
     let eig = inertia.symmetric_eigen();
     // TODO: new_unchecked
     // TODO: better copying in general
@@ -227,10 +248,6 @@ fn points_to_tangent_eig<'a>(
 // }
 
 fn points_to_rtree(points: &[[Precision; 3]]) -> Result<RTree<PointWithIndex>, &'static str> {
-    if points.len() < N_NEIGHBORS {
-        return Err("Not enough points");
-    }
-
     Ok(RTree::bulk_load(
         points
             .iter()
@@ -241,8 +258,11 @@ fn points_to_rtree(points: &[[Precision; 3]]) -> Result<RTree<PointWithIndex>, &
 }
 
 fn points_to_rtree_tangents(
-    points: &[[Precision; 3]],
+    points: &[[Precision; 3]], k: usize,
 ) -> Result<(RTree<PointWithIndex>, Vec<Unit<Vector3<Precision>>>), &'static str> {
+    if points.len() < k {
+        return Err("Too few points to generate tangents");
+    }
     let rtree = points_to_rtree(points)?;
 
     let mut tangents: Vec<Unit<Vector3<Precision>>> = Vec::with_capacity(rtree.size());
@@ -251,7 +271,7 @@ fn points_to_rtree_tangents(
         match points_to_tangent_eig(
             rtree
                 .nearest_neighbor_iter(&point)
-                .take(N_NEIGHBORS)
+                .take(k)
                 .map(|pwd| pwd.position()),
         ) {
             Some(t) => tangents.push(t),
@@ -264,11 +284,13 @@ fn points_to_rtree_tangents(
 
 impl QueryPointTangents {
     /// Calculates tangents from the given points.
-    /// Note that this constructs a spatial query in order to calculate the tangents,
+    /// Note that this constructs a spatial index in order to calculate the tangents,
     /// and then throws it away: you may as well use a [TargetNeuron](trait.TargetNeuron.html)
     /// type, with regards to performance.
-    pub fn new(points: Vec<[Precision; 3]>) -> Result<Self, &'static str> {
-        points_to_rtree_tangents(&points).map(|(_, tangents)| Self { points, tangents })
+    /// `k` is the number of points tangents will be calculated with,
+    /// and includes the point itself.
+    pub fn new(points: Vec<[Precision; 3]>, k: usize) -> Result<Self, &'static str> {
+        points_to_rtree_tangents(&points, k).map(|(_, tangents)| Self { points, tangents })
     }
 }
 
@@ -318,8 +340,9 @@ pub struct RStarPointTangents {
 
 impl RStarPointTangents {
     /// Calculate tangents from constructed R*-tree.
-    pub fn new(points: Vec<[Precision; 3]>) -> Result<Self, &'static str> {
-        points_to_rtree_tangents(&points).map(|(rtree, tangents)| Self { rtree, tangents })
+    /// `k` is the number of points to calculate each tangent with.
+    pub fn new(points: Vec<[Precision; 3]>, k: usize) -> Result<Self, &'static str> {
+        points_to_rtree_tangents(&points, k).map(|(rtree, tangents)| Self { rtree, tangents })
     }
 
     /// Use pre-calculated tangents.
@@ -592,6 +615,7 @@ mod tests {
     use super::*;
 
     const EPSILON: Precision = 0.001;
+    const N_NEIGHBORS: usize = 5;
 
     fn add_points(a: &[f64; 3], b: &[f64; 3]) -> [f64; 3] {
         let mut out = [0., 0., 0.];
@@ -616,8 +640,8 @@ mod tests {
     #[test]
     fn construct() {
         let points = make_points(&[0., 0., 0.], &[1., 0., 0.], 10);
-        QueryPointTangents::new(points.clone()).expect("Query construction failed");
-        RStarPointTangents::new(points).expect("Target construction failed");
+        QueryPointTangents::new(points.clone(), N_NEIGHBORS).expect("Query construction failed");
+        RStarPointTangents::new(points, N_NEIGHBORS).expect("Target construction failed");
     }
 
     fn is_close(val1: Precision, val2: Precision) -> bool {
@@ -804,9 +828,9 @@ mod tests {
         let score_fn = table_to_fn(dist_thresholds, dot_thresholds, cells);
 
         let q_points = make_points(&[0., 0., 0.], &[1.0, 0.0, 0.0], 10);
-        let query = QueryPointTangents::new(q_points.clone()).expect("Query construction failed");
-        let query2 = RStarPointTangents::new(q_points).expect("Construction failed");
-        let target = RStarPointTangents::new(make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10))
+        let query = QueryPointTangents::new(q_points.clone(), N_NEIGHBORS).expect("Query construction failed");
+        let query2 = RStarPointTangents::new(q_points, N_NEIGHBORS).expect("Construction failed");
+        let target = RStarPointTangents::new(make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10), N_NEIGHBORS)
             .expect("Construction failed");
 
         assert_close(
@@ -828,9 +852,9 @@ mod tests {
 
         let score_fn = table_to_fn(dist_thresholds, dot_thresholds, cells);
 
-        let query = RStarPointTangents::new(make_points(&[0., 0., 0.], &[1., 0., 0.], 10))
+        let query = RStarPointTangents::new(make_points(&[0., 0., 0.], &[1., 0., 0.], 10), N_NEIGHBORS)
             .expect("Construction failed");
-        let target = RStarPointTangents::new(make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10))
+        let target = RStarPointTangents::new(make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10), N_NEIGHBORS)
             .expect("Construction failed");
 
         let mut arena = NblastArena::new(score_fn);
