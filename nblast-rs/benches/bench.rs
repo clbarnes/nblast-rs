@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use bencher::{benchmark_group, benchmark_main, Bencher};
 use csv::ReaderBuilder;
 
-use nblast::{table_to_fn, DistDot, NblastArena, QueryNeuron, RStarPointTangents};
+use nblast::{table_to_fn, DistDot, NblastArena, Point3, Precision, QueryNeuron, RStarPointTangents};
 
 const NAMES: [&str; 20] = [
     "ChaMARCM-F000586_seg002",
@@ -58,9 +58,8 @@ fn to_path(name: &str) -> PathBuf {
 }
 
 type Record = (usize, f64, f64, f64);
-type Precision = f64;
 
-fn read_points(name: &str) -> Vec<[Precision; 3]> {
+fn read_points(name: &str) -> Vec<Point3> {
     let fpath = to_path(name);
     let f =
         File::open(fpath.clone()).unwrap_or_else(|_| panic!("couldn't find file at {:?}", fpath));
