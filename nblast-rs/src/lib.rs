@@ -218,17 +218,15 @@ fn calc_inertia<'a>(points: impl Iterator<Item = &'a Point3>) -> Matrix3<Precisi
 fn points_to_tangent_eig<'a>(
     points: impl Iterator<Item = &'a Point3>,
 ) -> Option<Unit<Vector3<Precision>>> {
-    let points_vec: Vec<_> = points.collect();
-    let inertia = calc_inertia(points_vec.iter().cloned());
+    let inertia = calc_inertia(points);
     let eig = inertia.symmetric_eigen();
     // TODO: new_unchecked
     // TODO: better copying in general
-    Some(Unit::new_normalize(Vector3::from_iterator(
+    Some(Unit::new_normalize(
         eig.eigenvectors
             .column(eig.eigenvalues.argmax().0)
-            .iter()
-            .cloned(),
-    )))
+            .into(),
+    ))
 }
 
 // ! doesn't work
