@@ -154,16 +154,6 @@ pub trait QueryNeuron {
     fn tangents(&self) -> Vec<Unit<Vector3<Precision>>>;
 }
 
-/// Minimal struct to use as the query (not the target) of an NBLAST
-/// comparison.
-#[derive(Clone)]
-pub struct QueryPointTangents {
-    /// Locations of points in point cloud.
-    points: Vec<Point3>,
-    /// Unit-length tangent vectors for each point in the cloud.
-    tangents: Vec<Unit<Vector3<Precision>>>,
-}
-
 fn subtract_points(p1: &Point3, p2: &Point3) -> Point3 {
     let mut result = [0.0; 3];
     for ((rref, v1), v2) in result.iter_mut().zip(p1).zip(p2) {
@@ -279,6 +269,16 @@ fn points_to_rtree_tangents(
     }
 
     Ok((rtree, tangents))
+}
+
+/// Minimal struct to use as the query (not the target) of an NBLAST
+/// comparison.
+#[derive(Clone)]
+pub struct QueryPointTangents {
+    /// Locations of points in point cloud.
+    points: Vec<Point3>,
+    /// Unit-length tangent vectors for each point in the cloud.
+    tangents: Vec<Unit<Vector3<Precision>>>,
 }
 
 impl QueryPointTangents {
