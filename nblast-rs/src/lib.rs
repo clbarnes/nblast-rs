@@ -246,30 +246,30 @@ fn points_to_tangent_eig<'a>(
 //     })
 // }
 
-fn points_to_rtree(points: &[Point3]) -> Result<RTree<PointWithIndex>, &'static str> {
+fn points_to_rtree(points: impl Iterator<Item = impl std::borrow::Borrow<Point3>>) -> Result<RTree<PointWithIndex>, &'static str> {
     Ok(RTree::bulk_load(
         points
-            .iter()
             .enumerate()
-            .map(|(idx, point)| PointWithIndex::new(idx, *point))
+            .map(|(idx, point)| PointWithIndex::new(idx, *point.borrow()))
             .collect(),
     ))
 }
 
 fn points_to_rtree_tangents(
-    points: &[Point3], k: usize,
+    points: impl Iterator<Item = impl std::borrow::Borrow<Point3>> + ExactSizeIterator + Clone,
+    k: usize,
 ) -> Result<(RTree<PointWithIndex>, Vec<Unit<Vector3<Precision>>>), &'static str> {
     if points.len() < k {
         return Err("Too few points to generate tangents");
     }
-    let rtree = points_to_rtree(points)?;
+    let rtree = points_to_rtree(points.clone())?;
 
     let mut tangents: Vec<Unit<Vector3<Precision>>> = Vec::with_capacity(rtree.size());
 
-    for point in points.iter() {
+    for point in points {
         match points_to_tangent_eig(
             rtree
-                .nearest_neighbor_iter(&point)
+                .nearest_neighbor_iter(point.borrow())
                 .take(k)
                 .map(|pwd| pwd.position()),
         ) {
@@ -289,7 +289,7 @@ impl QueryPointTangents {
     /// `k` is the number of points tangents will be calculated with,
     /// and includes the point itself.
     pub fn new(points: Vec<Point3>, k: usize) -> Result<Self, &'static str> {
-        points_to_rtree_tangents(&points, k).map(|(_, tangents)| Self { points, tangents })
+        points_to_rtree_tangents(points.iter(), k).map(|(_, tangents)| Self { points, tangents })
     }
 }
 
@@ -340,16 +340,19 @@ pub struct RStarPointTangents {
 impl RStarPointTangents {
     /// Calculate tangents from constructed R*-tree.
     /// `k` is the number of points to calculate each tangent with.
-    pub fn new(points: Vec<Point3>, k: usize) -> Result<Self, &'static str> {
-        points_to_rtree_tangents(&points, k).map(|(rtree, tangents)| Self { rtree, tangents })
+    pub fn new<T: std::borrow::Borrow<Point3>>(
+        points: impl IntoIterator<Item=T, IntoIter=impl Iterator<Item=T> + ExactSizeIterator + Clone>,
+        k: usize,
+    ) -> Result<Self, &'static str> {
+        points_to_rtree_tangents(points.into_iter(), k).map(|(rtree, tangents)| Self { rtree, tangents })
     }
 
     /// Use pre-calculated tangents.
-    pub fn new_with_tangents(
-        points: Vec<Point3>,
+    pub fn new_with_tangents<T: std::borrow::Borrow<Point3>>(
+        points: impl IntoIterator<Item=T, IntoIter=impl Iterator<Item=T> + ExactSizeIterator + Clone>,
         tangents: Vec<Unit<Vector3<Precision>>>,
     ) -> Result<Self, &'static str> {
-        points_to_rtree(&points).map(|rtree| Self { rtree, tangents })
+        points_to_rtree(points.into_iter()).map(|rtree| Self { rtree, tangents })
     }
 }
 
@@ -640,7 +643,7 @@ mod tests {
     fn construct() {
         let points = make_points(&[0., 0., 0.], &[1., 0., 0.], 10);
         QueryPointTangents::new(points.clone(), N_NEIGHBORS).expect("Query construction failed");
-        RStarPointTangents::new(points, N_NEIGHBORS).expect("Target construction failed");
+        RStarPointTangents::new(&points, N_NEIGHBORS).expect("Target construction failed");
     }
 
     fn is_close(val1: Precision, val2: Precision) -> bool {
@@ -828,8 +831,8 @@ mod tests {
 
         let q_points = make_points(&[0., 0., 0.], &[1.0, 0.0, 0.0], 10);
         let query = QueryPointTangents::new(q_points.clone(), N_NEIGHBORS).expect("Query construction failed");
-        let query2 = RStarPointTangents::new(q_points, N_NEIGHBORS).expect("Construction failed");
-        let target = RStarPointTangents::new(make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10), N_NEIGHBORS)
+        let query2 = RStarPointTangents::new(&q_points, N_NEIGHBORS).expect("Construction failed");
+        let target = RStarPointTangents::new(&make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10), N_NEIGHBORS)
             .expect("Construction failed");
 
         assert_close(
@@ -851,9 +854,9 @@ mod tests {
 
         let score_fn = table_to_fn(dist_thresholds, dot_thresholds, cells);
 
-        let query = RStarPointTangents::new(make_points(&[0., 0., 0.], &[1., 0., 0.], 10), N_NEIGHBORS)
+        let query = RStarPointTangents::new(&make_points(&[0., 0., 0.], &[1., 0., 0.], 10), N_NEIGHBORS)
             .expect("Construction failed");
-        let target = RStarPointTangents::new(make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10), N_NEIGHBORS)
+        let target = RStarPointTangents::new(&make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10), N_NEIGHBORS)
             .expect("Construction failed");
 
         let mut arena = NblastArena::new(score_fn);

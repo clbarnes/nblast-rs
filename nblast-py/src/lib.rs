@@ -52,15 +52,14 @@ impl ArenaWrapper {
     }
 
     fn add_points(&mut self, _py: Python, points: Vec<Vec<f64>>) -> PyResult<usize> {
-        // TODO: avoid this copy?
-        let neuron = RStarPointTangents::new(points.iter().map(vec_to_array3).collect(), self.k)
+        let neuron = RStarPointTangents::new(points.iter().map(vec_to_array3), self.k)
             .map_err(|s| PyErr::new::<exceptions::RuntimeError, _>(s))?;
         Ok(self.arena.add_neuron(neuron))
     }
 
     fn add_points_tangents(&mut self, _py: Python, points: Vec<Vec<f64>>, tangents: Vec<Vec<f64>>) -> PyResult<usize> {
         let neuron = RStarPointTangents::new_with_tangents(
-            points.iter().map(vec_to_array3).collect(),
+            points.iter().map(vec_to_array3),
             tangents.iter().map(vec_to_unitvector3).collect(),
         ).map_err(|s| PyErr::new::<exceptions::RuntimeError, _>(s))?;
         Ok(self.arena.add_neuron(neuron))
