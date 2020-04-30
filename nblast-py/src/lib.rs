@@ -152,7 +152,7 @@ impl ResamplingArbor {
         let edges_with_data: Vec<_> = table.iter().map(|(child, parent, x, y, z)| (*child, *parent, [*x, *y, *z])).collect();
         let (tree, tnid_to_id) = edges_to_tree_with_data(&edges_with_data)
             .map_err(
-                |_| PyErr::new::<exceptions::ValueError, _>("Symmetry type not recognised")
+                |_| PyErr::new::<exceptions::ValueError, _>("Could not construct tree")
             )?;
         Ok(obj.init(Self { tree, tnid_to_id }))
     }
