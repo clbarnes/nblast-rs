@@ -46,9 +46,10 @@ impl ArenaWrapper {
         k: usize,
     ) -> PyResult<()> {
         let score_fn = table_to_fn(dist_thresholds, dot_thresholds, cells);
-        Ok(obj.init(Self {
+        obj.init(Self {
             arena: NblastArena::new(Box::new(score_fn)), k,
-        }))
+        });
+        Ok(())
     }
 
     fn add_points(&mut self, _py: Python, points: Vec<Vec<f64>>) -> PyResult<usize> {
@@ -154,7 +155,8 @@ impl ResamplingArbor {
             .map_err(
                 |_| PyErr::new::<exceptions::ValueError, _>("Could not construct tree")
             )?;
-        Ok(obj.init(Self { tree, tnid_to_id }))
+        obj.init(Self { tree, tnid_to_id });
+        Ok(())
     }
 
     fn prune_at(&mut self, ids: Vec<usize>) -> usize {
