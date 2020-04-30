@@ -1,5 +1,6 @@
 [workspace]
 
 members = [
+  "nblast-py",
   "nblast-rs",
 ]

@@ -28,5 +28,3 @@ nblast = { path = "../nblast-rs", version = "0.1.1" }
 [lib]
 name = "pynblast"
 crate-type = ["cdylib"]
-
-[workspace]

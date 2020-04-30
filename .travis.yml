@@ -18,6 +18,7 @@ rust_test: &rust_test
   before_install:
     - source ci/travis/setup_rust.sh
   script:
+    - cd nblast-rs
     - cargo test --verbose
 
 python_test: &python_test
