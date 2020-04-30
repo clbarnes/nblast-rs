@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use bencher::{benchmark_group, benchmark_main, Bencher};
 use csv::ReaderBuilder;
 
-use nblast::{table_to_fn, DistDot, NblastArena, QueryNeuron, RStarPointTangents};
+use nblast::{table_to_fn, DistDot, NblastArena, Point3, Precision, QueryNeuron, RStarPointTangents};
 
 const NAMES: [&str; 20] = [
     "ChaMARCM-F000586_seg002",
@@ -58,9 +58,8 @@ fn to_path(name: &str) -> PathBuf {
 }
 
 type Record = (usize, f64, f64, f64);
-type Precision = f64;
 
-fn read_points(name: &str) -> Vec<[Precision; 3]> {
+fn read_points(name: &str) -> Vec<Point3> {
     let fpath = to_path(name);
     let f =
         File::open(fpath.clone()).unwrap_or_else(|_| panic!("couldn't find file at {:?}", fpath));
@@ -136,30 +135,30 @@ fn get_score_fn() -> impl Fn(&DistDot) -> Precision {
 
 fn bench_query(b: &mut Bencher) {
     let score_fn = get_score_fn();
-    let query = RStarPointTangents::new(read_points(NAMES[0]), N_NEIGHBORS).expect("couldn't parse");
-    let target = RStarPointTangents::new(read_points(NAMES[1]), N_NEIGHBORS).expect("couldn't parse");
+    let query = RStarPointTangents::new(&read_points(NAMES[0]), N_NEIGHBORS).expect("couldn't parse");
+    let target = RStarPointTangents::new(&read_points(NAMES[1]), N_NEIGHBORS).expect("couldn't parse");
 
     b.iter(|| query.query(&target, &score_fn))
 }
 
 fn bench_rstarpt_construction(b: &mut Bencher) {
     let points = read_points(NAMES[0]);
-    b.iter(|| RStarPointTangents::new(points.clone(), N_NEIGHBORS).expect("couldn't parse"));
+    b.iter(|| RStarPointTangents::new(&points, N_NEIGHBORS).expect("couldn't parse"));
 }
 
 fn bench_rstarpt_construction_with_tangents(b: &mut Bencher) {
     let points = read_points(NAMES[0]);
-    let tangents = RStarPointTangents::new(points.clone(), N_NEIGHBORS)
+    let tangents = RStarPointTangents::new(&points, N_NEIGHBORS)
         .expect("couldn't parse")
         .tangents();
-    b.iter(|| RStarPointTangents::new_with_tangents(points.clone(), tangents.clone()));
+    b.iter(|| RStarPointTangents::new_with_tangents(&points, tangents.clone()));
 }
 
 fn bench_arena_construction(b: &mut Bencher) {
     let score_fn = get_score_fn();
     let pointtangents: Vec<_> = NAMES
         .iter()
-        .map(|n| RStarPointTangents::new(read_points(n), N_NEIGHBORS).expect("couldn't parse"))
+        .map(|n| RStarPointTangents::new(&read_points(n), N_NEIGHBORS).expect("couldn't parse"))
         .collect();
     b.iter(|| {
         let mut arena = NblastArena::new(&score_fn);
@@ -172,9 +171,9 @@ fn bench_arena_construction(b: &mut Bencher) {
 fn bench_arena_query(b: &mut Bencher) {
     let mut arena = NblastArena::new(get_score_fn());
     let p0 = read_points(NAMES[0]);
-    let idx0 = arena.add_neuron(RStarPointTangents::new(p0, N_NEIGHBORS).expect("couldn't parse"));
+    let idx0 = arena.add_neuron(RStarPointTangents::new(&p0, N_NEIGHBORS).expect("couldn't parse"));
     let p1 = read_points(NAMES[1]);
-    let idx1 = arena.add_neuron(RStarPointTangents::new(p1, N_NEIGHBORS).expect("couldn't parse"));
+    let idx1 = arena.add_neuron(RStarPointTangents::new(&p1, N_NEIGHBORS).expect("couldn't parse"));
 
     b.iter(|| arena.query_target(idx0, idx1, false, &None));
 }
@@ -182,9 +181,9 @@ fn bench_arena_query(b: &mut Bencher) {
 fn bench_arena_query_norm(b: &mut Bencher) {
     let mut arena = NblastArena::new(get_score_fn());
     let p0 = read_points(NAMES[0]);
-    let idx0 = arena.add_neuron(RStarPointTangents::new(p0, N_NEIGHBORS).expect("couldn't parse"));
+    let idx0 = arena.add_neuron(RStarPointTangents::new(&p0, N_NEIGHBORS).expect("couldn't parse"));
     let p1 = read_points(NAMES[1]);
-    let idx1 = arena.add_neuron(RStarPointTangents::new(p1, N_NEIGHBORS).expect("couldn't parse"));
+    let idx1 = arena.add_neuron(RStarPointTangents::new(&p1, N_NEIGHBORS).expect("couldn't parse"));
 
     b.iter(|| arena.query_target(idx0, idx1, true, &None));
 }
@@ -192,9 +191,9 @@ fn bench_arena_query_norm(b: &mut Bencher) {
 fn bench_arena_query_geom(b: &mut Bencher) {
     let mut arena = NblastArena::new(get_score_fn());
     let p0 = read_points(NAMES[0]);
-    let idx0 = arena.add_neuron(RStarPointTangents::new(p0, N_NEIGHBORS).expect("couldn't parse"));
+    let idx0 = arena.add_neuron(RStarPointTangents::new(&p0, N_NEIGHBORS).expect("couldn't parse"));
     let p1 = read_points(NAMES[1]);
-    let idx1 = arena.add_neuron(RStarPointTangents::new(p1, N_NEIGHBORS).expect("couldn't parse"));
+    let idx1 = arena.add_neuron(RStarPointTangents::new(&p1, N_NEIGHBORS).expect("couldn't parse"));
 
     b.iter(|| arena.query_target(idx0, idx1, false, &Some(nblast::Symmetry::GeometricMean)));
 }
@@ -202,9 +201,9 @@ fn bench_arena_query_geom(b: &mut Bencher) {
 fn bench_arena_query_norm_geom(b: &mut Bencher) {
     let mut arena = NblastArena::new(get_score_fn());
     let p0 = read_points(NAMES[0]);
-    let idx0 = arena.add_neuron(RStarPointTangents::new(p0, N_NEIGHBORS).expect("couldn't parse"));
+    let idx0 = arena.add_neuron(RStarPointTangents::new(&p0, N_NEIGHBORS).expect("couldn't parse"));
     let p1 = read_points(NAMES[1]);
-    let idx1 = arena.add_neuron(RStarPointTangents::new(p1, N_NEIGHBORS).expect("couldn't parse"));
+    let idx1 = arena.add_neuron(RStarPointTangents::new(&p1, N_NEIGHBORS).expect("couldn't parse"));
 
     b.iter(|| arena.query_target(idx0, idx1, true, &Some(nblast::Symmetry::GeometricMean)));
 }
@@ -214,7 +213,7 @@ fn bench_all_to_all(b: &mut Bencher) {
     let mut idxs = Vec::new();
     for name in NAMES.iter() {
         let points = read_points(name);
-        idxs.push(arena.add_neuron(RStarPointTangents::new(points, N_NEIGHBORS).expect("couldn't parse")));
+        idxs.push(arena.add_neuron(RStarPointTangents::new(&points, N_NEIGHBORS).expect("couldn't parse")));
     }
 
     b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None));
