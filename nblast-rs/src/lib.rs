@@ -52,6 +52,9 @@ use rstar::primitives::PointWithData;
 use rstar::RTree;
 use std::collections::{HashMap, HashSet};
 
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+
 pub use nalgebra;
 
 // NOTE: will panic if this is changed due to use of Matrix3x5
@@ -163,9 +166,7 @@ fn subtract_points(p1: &Point3, p2: &Point3) -> Point3 {
     result
 }
 
-fn center_points<'a>(
-    points: impl Iterator<Item = &'a Point3>,
-) -> impl Iterator<Item = Point3> {
+fn center_points<'a>(points: impl Iterator<Item = &'a Point3>) -> impl Iterator<Item = Point3> {
     let mut points_vec = Vec::default();
     let mut means: Point3 = [0.0, 0.0, 0.0];
     for pt in points {
@@ -183,7 +184,9 @@ fn center_points<'a>(
 }
 
 fn dot(a: &[Precision], b: &[Precision]) -> Precision {
-    a.iter().zip(b.iter()).fold(0.0, |sum, (ax, bx)| sum + ax * bx)
+    a.iter()
+        .zip(b.iter())
+        .fold(0.0, |sum, (ax, bx)| sum + ax * bx)
 }
 
 /// Calculate inertia from iterator of points.
@@ -200,23 +203,25 @@ fn calc_inertia<'a>(points: impl Iterator<Item = &'a Point3>) -> Matrix3<Precisi
         zs.push(point[2]);
     }
     Matrix3::new(
-        dot(&xs, &xs), 0.0, 0.0,
-        dot(&ys, &xs), dot(&ys, &ys), 0.0,
-        dot(&zs, &xs), dot(&zs, &ys), dot(&zs, &zs),
+        dot(&xs, &xs),
+        0.0,
+        0.0,
+        dot(&ys, &xs),
+        dot(&ys, &ys),
+        0.0,
+        dot(&zs, &xs),
+        dot(&zs, &ys),
+        dot(&zs, &zs),
     )
 }
 
-fn points_to_tangent_eig<'a>(
-    points: impl Iterator<Item = &'a Point3>,
-) -> Option<Normal3> {
+fn points_to_tangent_eig<'a>(points: impl Iterator<Item = &'a Point3>) -> Option<Normal3> {
     let inertia = calc_inertia(points);
     let eig = inertia.symmetric_eigen();
     // TODO: new_unchecked
     // TODO: better copying in general
     Some(Unit::new_normalize(
-        eig.eigenvectors
-            .column(eig.eigenvalues.argmax().0)
-            .into(),
+        eig.eigenvectors.column(eig.eigenvalues.argmax().0).into(),
     ))
 }
 
@@ -237,7 +242,9 @@ fn points_to_tangent_eig<'a>(
 //     })
 // }
 
-fn points_to_rtree(points: impl Iterator<Item = impl std::borrow::Borrow<Point3>>) -> Result<RTree<PointWithIndex>, &'static str> {
+fn points_to_rtree(
+    points: impl Iterator<Item = impl std::borrow::Borrow<Point3>>,
+) -> Result<RTree<PointWithIndex>, &'static str> {
     Ok(RTree::bulk_load(
         points
             .enumerate()
@@ -326,11 +333,7 @@ pub trait TargetNeuron: QueryNeuron {
     /// For a given point and tangent vector,
     /// get the distance to its nearest point in the target, and the absolute dot product
     /// with that neighbor's tangent (i.e. absolute cosine of the angle, as they are both unit-length).
-    fn nearest_match_dist_dot(
-        &self,
-        point: &Point3,
-        tangent: &Normal3,
-    ) -> DistDot;
+    fn nearest_match_dist_dot(&self, point: &Point3, tangent: &Normal3) -> DistDot;
 }
 
 /// Target neuron using an [R*-tree](https://en.wikipedia.org/wiki/R*_tree) for spatial queries.
@@ -344,15 +347,22 @@ impl RStarPointTangents {
     /// Calculate tangents from constructed R*-tree.
     /// `k` is the number of points to calculate each tangent with.
     pub fn new<T: std::borrow::Borrow<Point3>>(
-        points: impl IntoIterator<Item=T, IntoIter=impl Iterator<Item=T> + ExactSizeIterator + Clone>,
+        points: impl IntoIterator<
+            Item = T,
+            IntoIter = impl Iterator<Item = T> + ExactSizeIterator + Clone,
+        >,
         k: usize,
     ) -> Result<Self, &'static str> {
-        points_to_rtree_tangents(points.into_iter(), k).map(|(rtree, tangents)| Self { rtree, tangents })
+        points_to_rtree_tangents(points.into_iter(), k)
+            .map(|(rtree, tangents)| Self { rtree, tangents })
     }
 
     /// Use pre-calculated tangents.
     pub fn new_with_tangents<T: std::borrow::Borrow<Point3>>(
-        points: impl IntoIterator<Item=T, IntoIter=impl Iterator<Item=T> + ExactSizeIterator + Clone>,
+        points: impl IntoIterator<
+            Item = T,
+            IntoIter = impl Iterator<Item = T> + ExactSizeIterator + Clone,
+        >,
         tangents: Vec<Normal3>,
     ) -> Result<Self, &'static str> {
         points_to_rtree(points.into_iter()).map(|rtree| Self { rtree, tangents })
@@ -391,11 +401,7 @@ impl QueryNeuron for RStarPointTangents {
 }
 
 impl TargetNeuron for RStarPointTangents {
-    fn nearest_match_dist_dot(
-        &self,
-        point: &Point3,
-        tangent: &Normal3,
-    ) -> DistDot {
+    fn nearest_match_dist_dot(&self, point: &Point3, tangent: &Normal3) -> DistDot {
         self.rtree
             .nearest_neighbor_iter_with_distance(point)
             .next()
@@ -476,8 +482,8 @@ pub type NeuronIdx = usize;
 // TODO: caching strategy
 impl<N, F> NblastArena<N, F>
 where
-    N: TargetNeuron,
-    F: Fn(&DistDot) -> Precision,
+    N: TargetNeuron + Sync,
+    F: Fn(&DistDot) -> Precision + Sync,
 {
     pub fn new(score_fn: F) -> Self {
         Self {
@@ -530,13 +536,18 @@ where
     }
 
     /// Make many queries using the Cartesian product of the query and target indices.
-    /// See [query_target](#method.query_target) for more details.
+    /// `threads` configures parallelisation if the `parallel` feature is enabled:
+    /// `None` is done in serial, and for `Some(n)`, `n` is passed to
+    /// [rayon::ThreadPoolBuilder::num_threads](https://docs.rs/rayon/1.3.0/rayon/struct.ThreadPoolBuilder.html#method.num_threads).
+    ///
+    /// See [query_target](#method.query_target) for details on `normalize` and `symmetry`.
     pub fn queries_targets(
         &self,
         query_idxs: &[NeuronIdx],
         target_idxs: &[NeuronIdx],
         normalize: bool,
         symmetry: &Option<Symmetry>,
+        threads: Option<usize>,
     ) -> HashMap<(NeuronIdx, NeuronIdx), Precision> {
         let mut out = HashMap::with_capacity(query_idxs.len() * target_idxs.len());
         let mut out_keys: HashSet<(NeuronIdx, NeuronIdx)> = HashSet::default();
@@ -548,7 +559,7 @@ where
                     if let Some(ns) = self.neurons_scores.get(*q_idx) {
                         out.insert(key, if normalize { 1.0 } else { ns.1 });
                     };
-                    continue
+                    continue;
                 }
                 out_keys.insert(key);
                 jobs.insert(key);
@@ -558,12 +569,8 @@ where
             }
         }
 
-        let mut raw: HashMap<(NeuronIdx, NeuronIdx), Precision> = HashMap::default();
-        for (q_idx, t_idx) in jobs.into_iter() {
-            if let Some(s) = self.query_target(q_idx, t_idx, normalize, &None) {
-                raw.insert((q_idx, t_idx), s);
-            }
-        }
+        let jobs_vec: Vec<_> = jobs.into_iter().collect();
+        let raw = pairs_to_raw(self, &jobs_vec, normalize, threads);
 
         for key in out_keys.into_iter() {
             if let Some(forward) = raw.get(&key) {
@@ -591,9 +598,10 @@ where
         &self,
         normalize: bool,
         symmetry: &Option<Symmetry>,
+        threads: Option<usize>,
     ) -> HashMap<(NeuronIdx, NeuronIdx), Precision> {
         let idxs: Vec<NeuronIdx> = (0..self.len()).collect();
-        self.queries_targets(&idxs, &idxs, normalize, symmetry)
+        self.queries_targets(&idxs, &idxs, normalize, symmetry, threads)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -611,6 +619,70 @@ where
 
     pub fn tangents(&self, idx: NeuronIdx) -> Option<Vec<Normal3>> {
         self.neurons_scores.get(idx).map(|(n, _)| n.tangents())
+    }
+}
+
+fn pairs_to_raw_serial<N, F>(
+    arena: &NblastArena<N, F>,
+    pairs: &[(NeuronIdx, NeuronIdx)],
+    normalize: bool,
+) -> HashMap<(NeuronIdx, NeuronIdx), Precision>
+where
+    N: TargetNeuron + Sync,
+    F: Fn(&DistDot) -> Precision + Sync,
+{
+    pairs
+        .iter()
+        .filter_map(|(q_idx, t_idx)| {
+            arena
+                .query_target(*q_idx, *t_idx, normalize, &None)
+                .map(|s| ((*q_idx, *t_idx), s))
+        })
+        .collect()
+}
+
+#[cfg(not(feature = "parallel"))]
+fn pairs_to_raw<N, F>(
+    arena: &NblastArena<N, F>,
+    pairs: &[(NeuronIdx, NeuronIdx)],
+    normalize: bool,
+    threads: Option<usize>,
+) -> HashMap<(NeuronIdx, NeuronIdx), Precision>
+where
+    N: TargetNeuron + Sync,
+    F: Fn(&DistDot) -> Precision + Sync,
+{
+    pairs_to_raw_serial(arena, pairs, normalize)
+}
+
+#[cfg(feature = "parallel")]
+fn pairs_to_raw<N, F>(
+    arena: &NblastArena<N, F>,
+    pairs: &[(NeuronIdx, NeuronIdx)],
+    normalize: bool,
+    threads: Option<usize>,
+) -> HashMap<(NeuronIdx, NeuronIdx), Precision>
+where
+    N: TargetNeuron + Sync,
+    F: Fn(&DistDot) -> Precision + Sync,
+{
+    if let Some(t) = threads {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(t)
+            .build()
+            .unwrap();
+        pool.install(|| {
+            pairs
+                .par_iter()
+                .filter_map(|(q_idx, t_idx)| {
+                    arena
+                        .query_target(*q_idx, *t_idx, normalize, &None)
+                        .map(|s| ((*q_idx, *t_idx), s))
+                })
+                .collect()
+        })
+    } else {
+        pairs_to_raw_serial(arena, pairs, normalize)
     }
 }
 
@@ -658,13 +730,6 @@ mod tests {
         }
     }
 
-    // #[test]
-    // fn unit_tangents_svd() {
-    //     let (points, _) = tangent_data();
-    //     let tangent = points_to_tangent_svd(points.iter()).expect("SVD failed");
-    //     assert_close(tangent.dot(&tangent), 1.0)
-    // }
-
     #[test]
     fn unit_tangents_eig() {
         let (points, _) = tangent_data();
@@ -672,10 +737,7 @@ mod tests {
         assert_close(tangent.dot(&tangent), 1.0)
     }
 
-    fn equivalent_tangents(
-        tan1: &Normal3,
-        tan2: &Normal3,
-    ) -> bool {
+    fn equivalent_tangents(tan1: &Normal3, tan2: &Normal3) -> bool {
         is_close(tan1.dot(tan2).abs(), 1.0)
     }
 
@@ -832,10 +894,14 @@ mod tests {
         let score_fn = table_to_fn(dist_thresholds, dot_thresholds, cells);
 
         let q_points = make_points(&[0., 0., 0.], &[1.0, 0.0, 0.0], 10);
-        let query = QueryPointTangents::new(q_points.clone(), N_NEIGHBORS).expect("Query construction failed");
+        let query = QueryPointTangents::new(q_points.clone(), N_NEIGHBORS)
+            .expect("Query construction failed");
         let query2 = RStarPointTangents::new(&q_points, N_NEIGHBORS).expect("Construction failed");
-        let target = RStarPointTangents::new(&make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10), N_NEIGHBORS)
-            .expect("Construction failed");
+        let target = RStarPointTangents::new(
+            &make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10),
+            N_NEIGHBORS,
+        )
+        .expect("Construction failed");
 
         assert_close(
             query.query(&target, &score_fn),
@@ -856,10 +922,14 @@ mod tests {
 
         let score_fn = table_to_fn(dist_thresholds, dot_thresholds, cells);
 
-        let query = RStarPointTangents::new(&make_points(&[0., 0., 0.], &[1., 0., 0.], 10), N_NEIGHBORS)
-            .expect("Construction failed");
-        let target = RStarPointTangents::new(&make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10), N_NEIGHBORS)
-            .expect("Construction failed");
+        let query =
+            RStarPointTangents::new(&make_points(&[0., 0., 0.], &[1., 0., 0.], 10), N_NEIGHBORS)
+                .expect("Construction failed");
+        let target = RStarPointTangents::new(
+            &make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10),
+            N_NEIGHBORS,
+        )
+        .expect("Construction failed");
 
         let mut arena = NblastArena::new(score_fn);
         let q_idx = arena.add_neuron(query);
@@ -884,7 +954,7 @@ mod tests {
             arena.query_target(t_idx, q_idx, false, &Some(Symmetry::ArithmeticMean)),
         );
 
-        let out = arena.queries_targets(&[q_idx, t_idx], &[t_idx, q_idx], false, &None);
+        let out = arena.queries_targets(&[q_idx, t_idx], &[t_idx, q_idx], false, &None, None);
         assert_eq!(out.len(), 4);
     }
 

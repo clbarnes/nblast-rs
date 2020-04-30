@@ -6,7 +6,9 @@ use std::path::PathBuf;
 use bencher::{benchmark_group, benchmark_main, Bencher};
 use csv::ReaderBuilder;
 
-use nblast::{table_to_fn, DistDot, NblastArena, Point3, Precision, QueryNeuron, RStarPointTangents};
+use nblast::{
+    table_to_fn, DistDot, NblastArena, Point3, Precision, QueryNeuron, RStarPointTangents,
+};
 
 const NAMES: [&str; 20] = [
     "ChaMARCM-F000586_seg002",
@@ -135,8 +137,10 @@ fn get_score_fn() -> impl Fn(&DistDot) -> Precision {
 
 fn bench_query(b: &mut Bencher) {
     let score_fn = get_score_fn();
-    let query = RStarPointTangents::new(&read_points(NAMES[0]), N_NEIGHBORS).expect("couldn't parse");
-    let target = RStarPointTangents::new(&read_points(NAMES[1]), N_NEIGHBORS).expect("couldn't parse");
+    let query =
+        RStarPointTangents::new(&read_points(NAMES[0]), N_NEIGHBORS).expect("couldn't parse");
+    let target =
+        RStarPointTangents::new(&read_points(NAMES[1]), N_NEIGHBORS).expect("couldn't parse");
 
     b.iter(|| query.query(&target, &score_fn))
 }
@@ -208,15 +212,33 @@ fn bench_arena_query_norm_geom(b: &mut Bencher) {
     b.iter(|| arena.query_target(idx0, idx1, true, &Some(nblast::Symmetry::GeometricMean)));
 }
 
-fn bench_all_to_all(b: &mut Bencher) {
+fn bench_all_to_all_serial(b: &mut Bencher) {
     let mut arena = NblastArena::new(get_score_fn());
     let mut idxs = Vec::new();
     for name in NAMES.iter() {
         let points = read_points(name);
-        idxs.push(arena.add_neuron(RStarPointTangents::new(&points, N_NEIGHBORS).expect("couldn't parse")));
+        idxs.push(
+            arena
+                .add_neuron(RStarPointTangents::new(&points, N_NEIGHBORS).expect("couldn't parse")),
+        );
     }
 
-    b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None));
+    b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, None));
+}
+
+#[cfg(feature = "parallel")]
+fn bench_all_to_all_parallel(b: &mut Bencher) {
+    let mut arena = NblastArena::new(get_score_fn());
+    let mut idxs = Vec::new();
+    for name in NAMES.iter() {
+        let points = read_points(name);
+        idxs.push(
+            arena
+                .add_neuron(RStarPointTangents::new(&points, N_NEIGHBORS).expect("couldn't parse")),
+        );
+    }
+
+    b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, Some(0)));
 }
 
 benchmark_group!(
@@ -225,13 +247,15 @@ benchmark_group!(
     bench_rstarpt_construction_with_tangents,
     bench_query,
 );
+
 benchmark_group!(
     arena,
     bench_arena_query,
     bench_arena_query_norm,
     bench_arena_query_geom,
     bench_arena_query_norm_geom,
-    bench_all_to_all,
+    bench_all_to_all_serial,
+    bench_all_to_all_parallel,
     bench_arena_construction
 );
 
