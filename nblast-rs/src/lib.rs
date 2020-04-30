@@ -50,7 +50,7 @@
 use nalgebra::base::{Matrix3, Unit, Vector3};
 use rstar::primitives::PointWithData;
 use rstar::RTree;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub use nalgebra;
 
@@ -320,6 +320,8 @@ impl QueryNeuron for QueryPointTangents {
     }
 }
 
+/// Trait describing a neuron which can be the target (or the query)
+/// of an NBLAST match.
 pub trait TargetNeuron: QueryNeuron {
     /// For a given point and tangent vector,
     /// get the distance to its nearest point in the target, and the absolute dot product
@@ -427,17 +429,6 @@ fn find_bin_binary(value: Precision, upper_bounds: &[Precision]) -> usize {
         raw
     }
 }
-
-// fn find_bin_linear(value: Precision, upper_bounds: &Point) -> usize {
-//     let mut out = 0;
-//     for bound in upper_bounds.iter() {
-//         if &value < bound {
-//             return out;
-//         }
-//         out += 1;
-//     }
-//     out - 1
-// }
 
 /// Convert an empirically-derived table mapping pointwise distance and tangent absolute dot products
 /// to pointwise scores into a function which can be passed to neuron queries.
@@ -548,32 +539,42 @@ where
         symmetry: &Option<Symmetry>,
     ) -> HashMap<(NeuronIdx, NeuronIdx), Precision> {
         let mut out = HashMap::with_capacity(query_idxs.len() * target_idxs.len());
-
-        // ? lots of unnecessary index operations
-        for q_idx in query_idxs.iter() {
-            for t_idx in target_idxs.iter() {
+        let mut out_keys: HashSet<(NeuronIdx, NeuronIdx)> = HashSet::default();
+        let mut jobs: HashSet<(NeuronIdx, NeuronIdx)> = HashSet::default();
+        for q_idx in query_idxs {
+            for t_idx in target_idxs {
                 let key = (*q_idx, *t_idx);
                 if q_idx == t_idx {
-                    // if neurons are present and identical, 1.0 or self-hit (always symmetric)
                     if let Some(ns) = self.neurons_scores.get(*q_idx) {
                         out.insert(key, if normalize { 1.0 } else { ns.1 });
                     };
-                } else if symmetry.is_some() {
-                    // otherwise, if symmetric, use reverse query score if it's in the result set
-                    // or generate the result if not
-                    match out.get(&(*t_idx, *q_idx)).map_or_else(
-                        || self.query_target(*q_idx, *t_idx, normalize, symmetry),
-                        |s| Some(*s),
-                    ) {
-                        Some(s) => out.insert(key, s),
-                        _ => None,
-                    };
+                    continue
+                }
+                out_keys.insert(key);
+                jobs.insert(key);
+                if symmetry.is_some() {
+                    jobs.insert((*t_idx, *q_idx));
+                }
+            }
+        }
+
+        let mut raw: HashMap<(NeuronIdx, NeuronIdx), Precision> = HashMap::default();
+        for (q_idx, t_idx) in jobs.into_iter() {
+            if let Some(s) = self.query_target(q_idx, t_idx, normalize, &None) {
+                raw.insert((q_idx, t_idx), s);
+            }
+        }
+
+        for key in out_keys.into_iter() {
+            if let Some(forward) = raw.get(&key) {
+                if let Some(s) = symmetry {
+                    // ! this applies symmetry twice if idx is in both input and output,
+                    // but it's a cheap function
+                    if let Some(backward) = raw.get(&(key.1, key.0)) {
+                        out.insert(key, apply_symmetry(s, *forward, *backward));
+                    }
                 } else {
-                    // otherwise, generate (asymmetric) result
-                    match self.query_target(*q_idx, *t_idx, normalize, &None) {
-                        Some(s) => out.insert(key, s),
-                        _ => None,
-                    };
+                    out.insert(key, *forward);
                 }
             }
         }
