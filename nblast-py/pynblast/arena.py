@@ -11,6 +11,7 @@ class NblastArena:
     Class for creating and keeping track of many neurons for comparison with NBLAST.
     """
 
+    threads = 0
     DEFAULT_K = 20
 
     def __init__(
@@ -18,6 +19,7 @@ class NblastArena:
         dist_bins: List[float],
         dot_bins: List[float],
         score_mat: np.ndarray,
+        threads: Optional[int] = -1,
         k=None,
     ):
         """
@@ -38,8 +40,14 @@ class NblastArena:
         See the ``ScoreMatrix`` namedtuple for convenience.
 
         ``k`` gives the number of points to use when calculating tangents.
-        If None, the NblastArena.DEFAULT_K value is used.
+
+        ``threads`` sets the default number of threads to use.
+        If `threads` < 0 (default), use the class' ``threads`` attribute (default 0).
+        If it is 0, use the number of threads available.
+        If it is > 0, use at most that many.
+        If it is ``None``, run in serial.
         """
+        self.threads = self._parse_threads(threads)
         self.k = k or self.DEFAULT_K
 
         if score_mat.shape != (len(dist_bins), len(dot_bins)):
@@ -69,6 +77,14 @@ class NblastArena:
 
         return self._impl.add_points_tangents(points.tolist(), tangents.tolist())
 
+    def _parse_threads(self, threads: Optional[int]) -> Optional[int]:
+        if threads is None:
+            return None
+        elif threads < 0:
+            return self.threads
+        else:
+            return int(threads)
+
     def query_target(
         self,
         query_idx: Idx,
@@ -96,21 +112,30 @@ class NblastArena:
         target_idxs: List[Idx],
         normalize: bool = False,
         symmetry: Optional[Symmetry] = None,
+        threads: Optional[int] = -1,
     ) -> Dict[Tuple[Idx, Idx], float]:
         """Query all combinations of some query neurons against some target neurons.
 
-        See the ``query_target`` method for more details.
+        See the ``query_target`` method for more details on
+        ``normalize`` and ``symmetry``.
+        See the ``__init__`` method for more details on ``threads``.
         """
+        threads = self._parse_threads(threads)
         return self._impl.queries_targets(
-            query_idxs, target_idxs, bool(normalize), symmetry
+            query_idxs, target_idxs, bool(normalize), symmetry, threads
         )
 
-    def all_v_all(self, normalize=False, symmetry=None) -> Dict[Tuple[Idx, Idx], float]:
+    def all_v_all(
+        self, normalize=False, symmetry=None, threads: Optional[int] = -1,
+    ) -> Dict[Tuple[Idx, Idx], float]:
         """Query all loaded neurons against each other.
 
-        See the ``query_target`` method for more details.
+        See the ``query_target`` method for more details on
+        ``normalize`` and ``symmetry``.
+        See the ``__init__`` method for more details on ``threads``.
         """
-        return self._impl.all_v_all(bool(normalize), symmetry)
+        threads = self._parse_threads(threads)
+        return self._impl.all_v_all(bool(normalize), symmetry, threads)
 
     def __len__(self) -> int:
         return self._impl.len()

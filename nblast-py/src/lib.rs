@@ -12,7 +12,7 @@ use nblast::{table_to_fn, DistDot, NblastArena, NeuronIdx, Precision, RStarPoint
 #[pyclass]
 pub struct ArenaWrapper {
     // TODO: can this box be avoided?
-    arena: NblastArena<RStarPointTangents, Box<dyn Fn(&DistDot) -> Precision>>,
+    arena: NblastArena<RStarPointTangents, Box<dyn Fn(&DistDot) -> Precision + Sync>>,
     k: usize,
 }
 
@@ -90,13 +90,14 @@ impl ArenaWrapper {
         target_idxs: Vec<NeuronIdx>,
         normalize: bool,
         symmetry: Option<&str>,
+        threads: Option<usize>,
     ) -> PyResult<HashMap<(NeuronIdx, NeuronIdx), f64>> {
         let sym = match symmetry {
             Some(s) => Some(str_to_sym(s).map_err(|_| PyErr::new::<exceptions::ValueError, _>("Symmetry type not recognised"))?),
             _ => None,
         };
         Ok(self.arena
-            .queries_targets(&query_idxs, &target_idxs, normalize, &sym))
+            .queries_targets(&query_idxs, &target_idxs, normalize, &sym, threads))
     }
 
     pub fn all_v_all(
@@ -104,12 +105,13 @@ impl ArenaWrapper {
         _py: Python,
         normalize: bool,
         symmetry: Option<&str>,
+        threads: Option<usize>,
     ) -> PyResult<HashMap<(NeuronIdx, NeuronIdx), Precision>> {
         let sym = match symmetry {
             Some(s) => Some(str_to_sym(s).map_err(|_| PyErr::new::<exceptions::ValueError, _>("Symmetry type not recognised"))?),
             _ => None,
         };
-        Ok(self.arena.all_v_all(normalize, &sym))
+        Ok(self.arena.all_v_all(normalize, &sym, threads))
     }
 
     pub fn len(&self, _py: Python) -> usize {

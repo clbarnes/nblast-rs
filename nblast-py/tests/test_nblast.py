@@ -73,14 +73,20 @@ def test_query(arena_names: Tuple[NblastArena, Dict[int, str]]):
     assert result
 
 
-def all_v_all(arena, names, normalize=False, symmetry=None):
+def all_v_all(arena, names, normalize=False, symmetry=None, threads=None):
     q = list(names)
-    return arena.queries_targets(q, q, normalize, symmetry=symmetry)
+    return arena.queries_targets(q, q, normalize, symmetry=symmetry, threads=threads)
 
 
 def test_all_v_all(arena_names: Tuple[NblastArena, Dict[int, str]]):
-    out = all_v_all(*arena_names)
+    out = all_v_all(*arena_names, threads=None)
     assert len(out) == len(arena_names[1]) ** 2
+
+
+def test_all_v_all_par(arena_names: Tuple[NblastArena, Dict[int, str]]):
+    ser = all_v_all(*arena_names, threads=None)
+    par = all_v_all(*arena_names, threads=0)
+    assert ser == par
 
 
 def test_normed(arena_names):
