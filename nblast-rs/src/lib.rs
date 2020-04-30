@@ -60,6 +60,7 @@ pub use nalgebra;
 /// Floating point precision type used internally
 pub type Precision = f64;
 pub type Point3 = [Precision; 3];
+pub type Normal3 = Unit<Vector3<Precision>>;
 
 type PointWithIndex = PointWithData<usize, Point3>;
 
@@ -151,7 +152,7 @@ pub trait QueryNeuron {
     /// Return an owned copy of the unit tangents present in the neuron.
     /// The order is not guaranteed, but is consistent with
     /// [points](#method.points).
-    fn tangents(&self) -> Vec<Unit<Vector3<Precision>>>;
+    fn tangents(&self) -> Vec<Normal3>;
 }
 
 fn subtract_points(p1: &Point3, p2: &Point3) -> Point3 {
@@ -207,7 +208,7 @@ fn calc_inertia<'a>(points: impl Iterator<Item = &'a Point3>) -> Matrix3<Precisi
 
 fn points_to_tangent_eig<'a>(
     points: impl Iterator<Item = &'a Point3>,
-) -> Option<Unit<Vector3<Precision>>> {
+) -> Option<Normal3> {
     let inertia = calc_inertia(points);
     let eig = inertia.symmetric_eigen();
     // TODO: new_unchecked
@@ -222,7 +223,7 @@ fn points_to_tangent_eig<'a>(
 // ! doesn't work
 // fn points_to_tangent_svd<'a>(
 //     points: impl Iterator<Item = &'a Point3>,
-// ) -> Option<Unit<Vector3<Precision>>> {
+// ) -> Option<Normal3> {
 //     let cols_vec: Vec<Vector3<Precision>> = center_points(points)
 //         .map(|p| Vector3::from_column_slice(&p))
 //         .collect();
@@ -248,13 +249,13 @@ fn points_to_rtree(points: impl Iterator<Item = impl std::borrow::Borrow<Point3>
 fn points_to_rtree_tangents(
     points: impl Iterator<Item = impl std::borrow::Borrow<Point3>> + ExactSizeIterator + Clone,
     k: usize,
-) -> Result<(RTree<PointWithIndex>, Vec<Unit<Vector3<Precision>>>), &'static str> {
+) -> Result<(RTree<PointWithIndex>, Vec<Normal3>), &'static str> {
     if points.len() < k {
         return Err("Too few points to generate tangents");
     }
     let rtree = points_to_rtree(points.clone())?;
 
-    let mut tangents: Vec<Unit<Vector3<Precision>>> = Vec::with_capacity(rtree.size());
+    let mut tangents: Vec<Normal3> = Vec::with_capacity(rtree.size());
 
     for point in points {
         match points_to_tangent_eig(
@@ -278,7 +279,7 @@ pub struct QueryPointTangents {
     /// Locations of points in point cloud.
     points: Vec<Point3>,
     /// Unit-length tangent vectors for each point in the cloud.
-    tangents: Vec<Unit<Vector3<Precision>>>,
+    tangents: Vec<Normal3>,
 }
 
 impl QueryPointTangents {
@@ -314,7 +315,7 @@ impl QueryNeuron for QueryPointTangents {
         self.points.clone()
     }
 
-    fn tangents(&self) -> Vec<Unit<Vector3<Precision>>> {
+    fn tangents(&self) -> Vec<Normal3> {
         self.tangents.clone()
     }
 }
@@ -326,7 +327,7 @@ pub trait TargetNeuron: QueryNeuron {
     fn nearest_match_dist_dot(
         &self,
         point: &Point3,
-        tangent: &Unit<Vector3<Precision>>,
+        tangent: &Normal3,
     ) -> DistDot;
 }
 
@@ -334,7 +335,7 @@ pub trait TargetNeuron: QueryNeuron {
 #[derive(Clone)]
 pub struct RStarPointTangents {
     rtree: RTree<PointWithIndex>,
-    tangents: Vec<Unit<Vector3<Precision>>>,
+    tangents: Vec<Normal3>,
 }
 
 impl RStarPointTangents {
@@ -350,7 +351,7 @@ impl RStarPointTangents {
     /// Use pre-calculated tangents.
     pub fn new_with_tangents<T: std::borrow::Borrow<Point3>>(
         points: impl IntoIterator<Item=T, IntoIter=impl Iterator<Item=T> + ExactSizeIterator + Clone>,
-        tangents: Vec<Unit<Vector3<Precision>>>,
+        tangents: Vec<Normal3>,
     ) -> Result<Self, &'static str> {
         points_to_rtree(points.into_iter()).map(|rtree| Self { rtree, tangents })
     }
@@ -382,7 +383,7 @@ impl QueryNeuron for RStarPointTangents {
         unsorted.into_iter().map(|pwd| *pwd.position()).collect()
     }
 
-    fn tangents(&self) -> Vec<Unit<Vector3<Precision>>> {
+    fn tangents(&self) -> Vec<Normal3> {
         self.tangents.clone()
     }
 }
@@ -391,7 +392,7 @@ impl TargetNeuron for RStarPointTangents {
     fn nearest_match_dist_dot(
         &self,
         point: &Point3,
-        tangent: &Unit<Vector3<Precision>>,
+        tangent: &Normal3,
     ) -> DistDot {
         self.rtree
             .nearest_neighbor_iter_with_distance(point)
@@ -607,7 +608,7 @@ where
         self.neurons_scores.get(idx).map(|(n, _)| n.points())
     }
 
-    pub fn tangents(&self, idx: NeuronIdx) -> Option<Vec<Unit<Vector3<Precision>>>> {
+    pub fn tangents(&self, idx: NeuronIdx) -> Option<Vec<Normal3>> {
         self.neurons_scores.get(idx).map(|(n, _)| n.tangents())
     }
 }
@@ -671,13 +672,13 @@ mod tests {
     }
 
     fn equivalent_tangents(
-        tan1: &Unit<Vector3<Precision>>,
-        tan2: &Unit<Vector3<Precision>>,
+        tan1: &Normal3,
+        tan2: &Normal3,
     ) -> bool {
         is_close(tan1.dot(tan2).abs(), 1.0)
     }
 
-    fn tangent_data() -> (Vec<Point3>, Unit<Vector3<Precision>>) {
+    fn tangent_data() -> (Vec<Point3>, Normal3) {
         // calculated from implementation known to be correct
         let expected = Unit::new_normalize(Vector3::from_column_slice(&[
             -0.939_392_2,
