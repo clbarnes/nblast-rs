@@ -53,7 +53,7 @@ impl ArenaWrapper {
 
     fn add_points(&mut self, _py: Python, points: Vec<Vec<f64>>) -> PyResult<usize> {
         let neuron = RStarPointTangents::new(points.iter().map(vec_to_array3), self.k)
-            .map_err(|s| PyErr::new::<exceptions::RuntimeError, _>(s))?;
+            .map_err(PyErr::new::<exceptions::RuntimeError, _>)?;
         Ok(self.arena.add_neuron(neuron))
     }
 
@@ -61,7 +61,7 @@ impl ArenaWrapper {
         let neuron = RStarPointTangents::new_with_tangents(
             points.iter().map(vec_to_array3),
             tangents.iter().map(vec_to_unitvector3).collect(),
-        ).map_err(|s| PyErr::new::<exceptions::RuntimeError, _>(s))?;
+        ).map_err(PyErr::new::<exceptions::RuntimeError, _>)?;
         Ok(self.arena.add_neuron(neuron))
     }
 
@@ -130,7 +130,7 @@ impl ArenaWrapper {
         self.arena.tangents(idx).map(|vectors| {
             vectors
                 .into_iter()
-                .map(|v| v.into_iter().map(|t| *t).collect())
+                .map(|v| v.into_iter().cloned().collect())
                 .collect()
         })
     }
@@ -158,12 +158,12 @@ impl ResamplingArbor {
     }
 
     fn prune_at(&mut self, ids: Vec<usize>) -> usize {
-        let inner_ids: Vec<_> = ids.iter().filter_map(|k| self.tnid_to_id.get(k).map(|v| *v)).collect();
+        let inner_ids: Vec<_> = ids.iter().filter_map(|k| self.tnid_to_id.get(k).cloned()).collect();
         self.tree.prune_at(&inner_ids).len()
     }
 
     fn prune_branches_containing(&mut self, ids: Vec<usize>) -> usize {
-        let inner_ids: Vec<_> = ids.iter().filter_map(|k| self.tnid_to_id.get(k).map(|v| *v)).collect();
+        let inner_ids: Vec<_> = ids.iter().filter_map(|k| self.tnid_to_id.get(k).cloned()).collect();
         self.tree.prune_branches_containing(&inner_ids).len()
     }
 
