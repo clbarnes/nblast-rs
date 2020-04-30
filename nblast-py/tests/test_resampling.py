@@ -12,7 +12,7 @@ def assert_nodes(resampler, contains=None, not_contains=None):
     if not not_contains:
         not_contains = set()
 
-    nodes = {tup[0] for tup in resampler.skeleton()}
+    nodes = get_nodes(resampler)
 
     assert nodes.issuperset(contains)
     assert nodes.isdisjoint(not_contains)
@@ -24,25 +24,28 @@ def test_construction(skeleton):
 
 def test_prune_at(resampler):
     prune_at = [23329984]
-    with assert_removes_nodes(resampler):
+    with assert_removes_nodes(resampler, not_contains=prune_at):
         resampler.prune_at(prune_at)
     assert_nodes(resampler, not_contains=prune_at)
 
 
 def test_prune_branches_containing(resampler):
-    prune_containing = [6208611]
-    with assert_removes_nodes(resampler):
+    prune_containing = [6208611, 6208792, 3537598]
+    with assert_removes_nodes(resampler, not_contains=prune_containing):
         resampler.prune_branches_containing(prune_containing)
-    assert_nodes(resampler, not_contains=prune_containing)
 
 
 @contextmanager
-def assert_removes_nodes(resampler):
+def assert_removes_nodes(resampler, contains=None, not_contains=None):
     before = get_nodes(resampler)
     yield
     after = get_nodes(resampler)
     assert after.issubset(before)
     assert len(after) < len(before)
+    if contains:
+        assert after.issuperset(contains)
+    if not_contains:
+        assert after.isdisjoint(not_contains)
 
 
 def test_prune_below_strahler(resampler):
