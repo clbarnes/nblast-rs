@@ -23,7 +23,7 @@ classifier = [
 [dependencies]
 pyo3 = { version = "0.8.5", features = ["extension-module"] }
 neurarbor = "0.1.5"
-nblast = { path = "../nblast-rs", version = "0.2.0", features = ["parallel"] }
+nblast = { path = "../nblast-rs", version = "0.3.0", features = ["parallel"] }
 
 [lib]
 name = "pynblast"
