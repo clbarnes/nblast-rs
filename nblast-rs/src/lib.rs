@@ -858,7 +858,7 @@ mod tests {
 
     #[test]
     fn unit_tangents_eig() {
-        let (points, _) = tangent_data();
+        let (points, _, _) = tangent_data();
         let tangent = TangentAlpha::new_from_points(points.iter()).tangent;
         assert_close(tangent.dot(&tangent), 1.0)
     }
@@ -867,7 +867,7 @@ mod tests {
         is_close(tan1.dot(tan2).abs(), 1.0)
     }
 
-    fn tangent_data() -> (Vec<Point3>, Normal3) {
+    fn tangent_data() -> (Vec<Point3>, Normal3, Precision) {
         // calculated from implementation known to be correct
         let expected = Unit::new_normalize(Vector3::from_column_slice(&[
             -0.939_392_2,
@@ -904,27 +904,20 @@ mod tests {
             ],
         ];
 
-        (points, expected)
-    }
+        let alpha = 0.844_842_871_450_449;
 
-    // #[test]
-    // #[ignore]
-    // fn test_tangent_svd() {
-    //     let (points, expected) = tangent_data();
-    //     let tangent = points_to_tangent_svd(points.iter()).expect("Failed to create tangent");
-    //     println!("tangent is {:?}", tangent);
-    //     println!("  expected {:?}", expected);
-    //     assert!(equivalent_tangents(&tangent, &expected))
-    // }
+        (points, expected, alpha)
+    }
 
     #[test]
     fn test_tangent_eig() {
-        let (points, expected) = tangent_data();
-        let tangent = TangentAlpha::new_from_points(points.iter()).tangent;
-        if !equivalent_tangents(&tangent, &expected) {
+        let (points, exp_tan, exp_alpha) = tangent_data();
+        let ta = TangentAlpha::new_from_points(points.iter());
+        assert_close(ta.alpha, exp_alpha);
+        if !equivalent_tangents(&ta.tangent, &exp_tan) {
             panic!(
                 "Non-equivalent tangents:\n\t{:?}\n\t{:?}",
-                tangent, expected
+                ta.tangent, exp_tan
             )
         }
     }
@@ -988,17 +981,6 @@ mod tests {
             11.0,
         );
     }
-
-    // #[test]
-    // fn test_find_bin_linear() {
-    //     let dots = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
-    //     assert_eq!(find_bin_linear(0.0, &dots), 0);
-    //     assert_eq!(find_bin_linear(0.15, &dots), 1);
-    //     assert_eq!(find_bin_linear(0.95, &dots), 9);
-    //     assert_eq!(find_bin_linear(-10.0, &dots), 0);
-    //     assert_eq!(find_bin_linear(10.0, &dots), 9);
-    //     assert_eq!(find_bin_linear(0.1, &dots), 1);
-    // }
 
     #[test]
     fn test_find_bin_binary() {
