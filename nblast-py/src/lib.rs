@@ -1,18 +1,20 @@
+use core::fmt::Debug;
 use pyo3::exceptions;
 use pyo3::prelude::*;
 use std::collections::HashMap;
-use core::fmt::Debug;
 
-use neurarbor::slab_tree::{Tree, NodeId};
-use neurarbor::{TopoArbor, Location, edges_to_tree_with_data, resample_tree_points};
+use neurarbor::slab_tree::{NodeId, Tree};
+use neurarbor::{edges_to_tree_with_data, resample_tree_points, Location, TopoArbor};
 
-use nblast::nalgebra::base::{Vector3, Unit};
-use nblast::{table_to_fn, DistDot, NblastArena, NeuronIdx, Precision, RStarPointTangents, Symmetry};
+use nblast::nalgebra::base::{Unit, Vector3};
+use nblast::{
+    table_to_fn, DistDot, NblastArena, NeuronIdx, Precision, RStarPointTangents, Symmetry,
+};
 
 #[pyclass]
 pub struct ArenaWrapper {
     // TODO: can this box be avoided?
-    arena: NblastArena<RStarPointTangents, Box<dyn Fn(&DistDot) -> Precision + Sync>>,
+    arena: NblastArena<RStarPointTangents, Box<dyn Fn(&DistDot) -> Precision + Sync + Send>>,
     k: usize,
 }
 
@@ -20,7 +22,9 @@ fn vec_to_array3<T: Sized + Copy>(v: &Vec<T>) -> [T; 3] {
     [v[0], v[1], v[2]]
 }
 
-fn vec_to_unitvector3<T: 'static + Sized + Copy + PartialEq + Debug>(v: &Vec<T>) -> Unit<Vector3<T>> {
+fn vec_to_unitvector3<T: 'static + Sized + Copy + PartialEq + Debug>(
+    v: &Vec<T>,
+) -> Unit<Vector3<T>> {
     Unit::new_unchecked(Vector3::new(v[0], v[1], v[2]))
 }
 
@@ -47,40 +51,55 @@ impl ArenaWrapper {
     ) -> PyResult<()> {
         let score_fn = table_to_fn(dist_thresholds, dot_thresholds, cells);
         obj.init(Self {
-            arena: NblastArena::new(Box::new(score_fn)), k,
+            arena: NblastArena::new(Box::new(score_fn)),
+            k,
         });
         Ok(())
     }
 
-    fn add_points(&mut self, _py: Python, points: Vec<Vec<f64>>) -> PyResult<usize> {
-        let neuron = RStarPointTangents::new(points.iter().map(vec_to_array3), self.k)
-            .map_err(PyErr::new::<exceptions::RuntimeError, _>)?;
-        Ok(self.arena.add_neuron(neuron))
+    pub fn add_points(&mut self, py: Python, points: Vec<Vec<f64>>) -> PyResult<usize> {
+        py.allow_threads(|| {
+            let neuron = RStarPointTangents::new(points.iter().map(vec_to_array3), self.k)
+                .map_err(PyErr::new::<exceptions::RuntimeError, _>)?;
+            Ok(self.arena.add_neuron(neuron))
+        })
     }
 
-    fn add_points_tangents(&mut self, _py: Python, points: Vec<Vec<f64>>, tangents: Vec<Vec<f64>>) -> PyResult<usize> {
-        let neuron = RStarPointTangents::new_with_tangents(
-            points.iter().map(vec_to_array3),
-            tangents.iter().map(vec_to_unitvector3).collect(),
-        ).map_err(PyErr::new::<exceptions::RuntimeError, _>)?;
-        Ok(self.arena.add_neuron(neuron))
+    pub fn add_points_tangents(
+        &mut self,
+        py: Python,
+        points: Vec<Vec<f64>>,
+        tangents: Vec<Vec<f64>>,
+    ) -> PyResult<usize> {
+        py.allow_threads(|| {
+            let neuron = RStarPointTangents::new_with_tangents(
+                points.iter().map(vec_to_array3),
+                tangents.iter().map(vec_to_unitvector3).collect(),
+            )
+            .map_err(PyErr::new::<exceptions::RuntimeError, _>)?;
+            Ok(self.arena.add_neuron(neuron))
+        })
     }
 
     pub fn query_target(
         &self,
-        _py: Python,
+        py: Python,
         query_idx: NeuronIdx,
         target_idx: NeuronIdx,
         normalize: bool,
         symmetry: Option<&str>,
     ) -> PyResult<Option<f64>> {
-        let sym = match symmetry {
-            Some(s) => Some(str_to_sym(s).map_err(|_| PyErr::new::<exceptions::ValueError, _>("Symmetry type not recognised"))?),
-            _ => None,
-        };
-        Ok(self.arena
-            .query_target(query_idx, target_idx, normalize, &sym)
-        )
+        py.allow_threads(|| {
+            let sym = match symmetry {
+                Some(s) => Some(str_to_sym(s).map_err(|_| {
+                    PyErr::new::<exceptions::ValueError, _>("Symmetry type not recognised")
+                })?),
+                _ => None,
+            };
+            Ok(self
+                .arena
+                .query_target(query_idx, target_idx, normalize, &sym))
+        })
     }
 
     pub fn queries_targets(
@@ -93,10 +112,13 @@ impl ArenaWrapper {
         threads: Option<usize>,
     ) -> PyResult<HashMap<(NeuronIdx, NeuronIdx), f64>> {
         let sym = match symmetry {
-            Some(s) => Some(str_to_sym(s).map_err(|_| PyErr::new::<exceptions::ValueError, _>("Symmetry type not recognised"))?),
+            Some(s) => Some(str_to_sym(s).map_err(|_| {
+                PyErr::new::<exceptions::ValueError, _>("Symmetry type not recognised")
+            })?),
             _ => None,
         };
-        Ok(self.arena
+        Ok(self
+            .arena
             .queries_targets(&query_idxs, &target_idxs, normalize, &sym, threads))
     }
 
@@ -108,7 +130,9 @@ impl ArenaWrapper {
         threads: Option<usize>,
     ) -> PyResult<HashMap<(NeuronIdx, NeuronIdx), Precision>> {
         let sym = match symmetry {
-            Some(s) => Some(str_to_sym(s).map_err(|_| PyErr::new::<exceptions::ValueError, _>("Symmetry type not recognised"))?),
+            Some(s) => Some(str_to_sym(s).map_err(|_| {
+                PyErr::new::<exceptions::ValueError, _>("Symmetry type not recognised")
+            })?),
             _ => None,
         };
         Ok(self.arena.all_v_all(normalize, &sym, threads))
@@ -152,53 +176,90 @@ impl ResamplingArbor {
         obj: &PyRawObject,
         table: Vec<(usize, Option<usize>, Precision, Precision, Precision)>,
     ) -> PyResult<()> {
-        let edges_with_data: Vec<_> = table.iter().map(|(child, parent, x, y, z)| (*child, *parent, [*x, *y, *z])).collect();
+        let edges_with_data: Vec<_> = table
+            .iter()
+            .map(|(child, parent, x, y, z)| (*child, *parent, [*x, *y, *z]))
+            .collect();
         let (tree, tnid_to_id) = edges_to_tree_with_data(&edges_with_data)
-            .map_err(
-                |_| PyErr::new::<exceptions::ValueError, _>("Could not construct tree")
-            )?;
+            .map_err(|_| PyErr::new::<exceptions::ValueError, _>("Could not construct tree"))?;
         obj.init(Self { tree, tnid_to_id });
         Ok(())
     }
 
-    fn prune_at(&mut self, ids: Vec<usize>) -> usize {
-        let inner_ids: Vec<_> = ids.iter().filter_map(|k| self.tnid_to_id.get(k).cloned()).collect();
-        self.tree.prune_at(&inner_ids).len()
+    pub fn prune_at(&mut self, py: Python, ids: Vec<usize>) -> usize {
+        py.allow_threads(|| {
+            let inner_ids: Vec<_> = ids
+                .iter()
+                .filter_map(|k| self.tnid_to_id.get(k).cloned())
+                .collect();
+            self.tree.prune_at(&inner_ids).len()
+        })
     }
 
-    fn prune_branches_containing(&mut self, ids: Vec<usize>) -> usize {
-        let inner_ids: Vec<_> = ids.iter().filter_map(|k| self.tnid_to_id.get(k).cloned()).collect();
-        self.tree.prune_branches_containing(&inner_ids).len()
+    pub fn prune_branches_containing(&mut self, py: Python, ids: Vec<usize>) -> usize {
+        py.allow_threads(|| {
+            let inner_ids: Vec<_> = ids
+                .iter()
+                .filter_map(|k| self.tnid_to_id.get(k).cloned())
+                .collect();
+            self.tree.prune_branches_containing(&inner_ids).len()
+        })
     }
 
-    fn prune_below_strahler(&mut self, threshold: usize) -> usize {
-        self.tree.prune_below_strahler(threshold).len()
+    pub fn prune_below_strahler(&mut self, py: Python, threshold: usize) -> usize {
+        py.allow_threads(|| self.tree.prune_below_strahler(threshold).len())
     }
 
-    fn prune_beyond_branches(&mut self, threshold: usize) -> usize {
-        self.tree.prune_beyond_branches(threshold).len()
+    pub fn prune_beyond_branches(&mut self, py: Python, threshold: usize) -> usize {
+        py.allow_threads(|| self.tree.prune_beyond_branches(threshold).len())
     }
 
-    fn prune_beyond_steps(&mut self, threshold: usize) -> usize {
-        self.tree.prune_beyond_steps(threshold).len()
+    pub fn prune_beyond_steps(&mut self, py: Python, threshold: usize) -> usize {
+        py.allow_threads(|| self.tree.prune_beyond_steps(threshold).len())
     }
 
-    fn points(&self, resample: Option<Precision>) -> Vec<Vec<Precision>> {
-        if let Some(len) = resample {
-            resample_tree_points(&self.tree, len).into_iter().map(|a| a.to_vec()).collect()
-        } else{
-            self.tree.root().unwrap().traverse_pre_order().map(|n| n.data().location().to_vec()).collect()
-        }
+    pub fn points(&self, py: Python, resample: Option<Precision>) -> Vec<Vec<Precision>> {
+        py.allow_threads(|| {
+            if let Some(len) = resample {
+                resample_tree_points(&self.tree, len)
+                    .into_iter()
+                    .map(|a| a.to_vec())
+                    .collect()
+            } else {
+                self.tree
+                    .root()
+                    .unwrap()
+                    .traverse_pre_order()
+                    .map(|n| n.data().location().to_vec())
+                    .collect()
+            }
+        })
     }
 
-    fn skeleton(&self) -> Vec<(usize, Option<usize>, Precision, Precision, Precision)> {
-        self.tree.root().unwrap().traverse_pre_order().map(|n| {
-            let (tnid, loc) = n.data();
-            (*tnid, n.parent().map(|p| p.data().0), loc[0], loc[1], loc[2])
-        }).collect()
+    pub fn skeleton(
+        &self,
+        py: Python,
+    ) -> Vec<(usize, Option<usize>, Precision, Precision, Precision)> {
+        py.allow_threads(|| {
+            self.tree
+                .root()
+                .unwrap()
+                .traverse_pre_order()
+                .map(|n| {
+                    let (tnid, loc) = n.data();
+                    (
+                        *tnid,
+                        n.parent().map(|p| p.data().0),
+                        loc[0],
+                        loc[1],
+                        loc[2],
+                    )
+                })
+                .collect()
+        })
     }
 
-    fn root(&self) -> usize {
+    pub fn root(&self, _py: Python) -> usize {
         self.tree.root().unwrap().data().0
     }
 }
