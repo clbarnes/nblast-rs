@@ -67,6 +67,9 @@ use rayon::prelude::*;
 
 pub use nalgebra;
 
+mod smat;
+pub use smat::ScoreMatrixBuilder;
+
 /// Floating point precision type used internally
 pub type Precision = f64;
 /// 3D point type used internally
