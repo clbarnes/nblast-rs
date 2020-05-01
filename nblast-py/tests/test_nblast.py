@@ -66,10 +66,19 @@ def test_tangents(arena, dotprops):
     assert np.allclose(tangents, expected_tangents)
 
 
+def test_alphas(arena, dotprops):
+    df = dotprops[0][1]
+    points = df[["points." + d for d in "XYZ"]].to_numpy()
+    expected_alpha = df.alpha
+    idx = arena.add_points(points)
+    alpha = arena.alphas(idx)
+    assert np.allclose(alpha, expected_alpha)
+
+
 def test_query(arena_names: Tuple[NblastArena, Dict[int, str]]):
     arena, _ = arena_names
 
-    result = arena.query_target(Idx(0), Idx(1))
+    result = arena.query_target(Idx(0), Idx(1), False)
     assert result
 
 
@@ -148,7 +157,8 @@ def test_prepop_tangents(points, arena):
     p = points[0][1].to_numpy()
     idx0 = arena.add_points(p)
     tangents = arena.tangents(idx0)
-    idx1 = arena.add_points_tangents(p, tangents)
+    alphas = arena.alphas(idx0)
+    idx1 = arena.add_points_tangents_alphas(p, tangents, alphas)
     assert arena.query_target(idx0, idx1, normalize=True) == pytest.approx(
         1.0, abs=EPSILON
     )

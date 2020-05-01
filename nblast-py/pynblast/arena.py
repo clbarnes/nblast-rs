@@ -5,22 +5,23 @@ import numpy as np
 from .pynblast import ArenaWrapper
 from .util import Idx, raise_if_none, rectify_tangents, Symmetry
 
+DEFAULT_THREADS = 0
+DEFAULT_K = 20
+
 
 class NblastArena:
     """
     Class for creating and keeping track of many neurons for comparison with NBLAST.
     """
 
-    threads = 0
-    DEFAULT_K = 20
-
     def __init__(
         self,
         dist_bins: List[float],
         dot_bins: List[float],
         score_mat: np.ndarray,
-        threads: Optional[int] = -1,
-        k=None,
+        threads: Optional[int] = DEFAULT_THREADS,
+        k=DEFAULT_K,
+        use_alpha=False,
     ):
         """
         The required arguments describe a lookup table which is used to convert
@@ -47,8 +48,8 @@ class NblastArena:
         If it is > 0, use at most that many.
         If it is ``None``, run in serial.
         """
-        self.threads = self._parse_threads(threads)
-        self.k = k or self.DEFAULT_K
+        self.threads = threads
+        self.k = k
 
         if score_mat.shape != (len(dist_bins), len(dot_bins)):
             raise ValueError("Bin thresholds do not match score matrix")
@@ -66,7 +67,9 @@ class NblastArena:
             raise ValueError("Points must have shape Nx3")
         return self._impl.add_points(points.tolist())
 
-    def add_points_tangents(self, points: np.ndarray, tangents: np.ndarray) -> Idx:
+    def add_points_tangents_alphas(
+        self, points: np.ndarray, tangents: np.ndarray, alphas: np.ndarray
+    ) -> Idx:
         """Add an Nx3 point cloud representing a neuron, with pre-calculated tangents.
         Tangents are assumed to be unit-length and in the same order as the points.
 
@@ -75,7 +78,9 @@ class NblastArena:
         if points.shape != tangents.shape or points.ndim != 2 or points.shape[1] != 3:
             raise ValueError("Points and tangents must have the same shape, Nx3")
 
-        return self._impl.add_points_tangents(points.tolist(), tangents.tolist())
+        return self._impl.add_points_tangents_alphas(
+            points.tolist(), tangents.tolist(), list(alphas)
+        )
 
     def _parse_threads(self, threads: Optional[int]) -> Optional[int]:
         if threads is None:
@@ -91,6 +96,7 @@ class NblastArena:
         target_idx: Idx,
         normalize: bool = False,
         symmetry: Optional[Symmetry] = None,
+        use_alpha: bool = False,
     ) -> float:
         """Query one neuron against another,
         using the indices generated when they were added.
@@ -103,7 +109,9 @@ class NblastArena:
         operation commutative/ symmetric
         (see the ``Symmetry`` enum for available functions).
         """
-        out = self._impl.query_target(query_idx, target_idx, bool(normalize), symmetry)
+        out = self._impl.query_target(
+            query_idx, target_idx, bool(normalize), symmetry, use_alpha
+        )
         return raise_if_none(out, query_idx, target_idx)
 
     def queries_targets(
@@ -112,6 +120,7 @@ class NblastArena:
         target_idxs: List[Idx],
         normalize: bool = False,
         symmetry: Optional[Symmetry] = None,
+        use_alpha: bool = False,
         threads: Optional[int] = -1,
     ) -> Dict[Tuple[Idx, Idx], float]:
         """Query all combinations of some query neurons against some target neurons.
@@ -122,11 +131,15 @@ class NblastArena:
         """
         threads = self._parse_threads(threads)
         return self._impl.queries_targets(
-            query_idxs, target_idxs, bool(normalize), symmetry, threads
+            query_idxs, target_idxs, bool(normalize), symmetry, use_alpha, threads
         )
 
     def all_v_all(
-        self, normalize=False, symmetry=None, threads: Optional[int] = -1,
+        self,
+        normalize=False,
+        symmetry=None,
+        use_alpha: bool = False,
+        threads: Optional[int] = -1,
     ) -> Dict[Tuple[Idx, Idx], float]:
         """Query all loaded neurons against each other.
 
@@ -135,7 +148,7 @@ class NblastArena:
         See the ``__init__`` method for more details on ``threads``.
         """
         threads = self._parse_threads(threads)
-        return self._impl.all_v_all(bool(normalize), symmetry, threads)
+        return self._impl.all_v_all(bool(normalize), symmetry, use_alpha, threads)
 
     def __len__(self) -> int:
         return self._impl.len()
@@ -144,12 +157,12 @@ class NblastArena:
         for idx in range(len(self)):
             yield Idx(idx)
 
-    def self_hit(self, idx) -> float:
+    def self_hit(self, idx, use_alpha: bool = False) -> float:
         """Get the raw score for querying the given neuron against itself.
 
         N.B. this is much faster that ``arena.query_target(n, n)``.
         """
-        out = self._impl.self_hit(idx)
+        out = self._impl.self_hit(idx, use_alpha)
         return raise_if_none(out, idx)
 
     def points(self, idx) -> np.ndarray:
@@ -168,3 +181,6 @@ class NblastArena:
         """
         out = np.array(raise_if_none(self._impl.tangents(idx), idx))
         return rectify_tangents(out, True) if rectify else out
+
+    def alphas(self, idx) -> np.ndarray:
+        return np.array(raise_if_none(self._impl.alphas(idx), idx))

@@ -1,6 +1,7 @@
 """Type stubs for classes to be used directly from pynblast"""
 from typing import List, Optional, Tuple
 
+
 class ResamplingArbor:
     def __init__(self, table: List[Tuple[int, Optional[int], float, float, float]]): ...
     def prune_at(self, ids: List[int]) -> int: ...

@@ -8,13 +8,14 @@ use neurarbor::{edges_to_tree_with_data, resample_tree_points, Location, TopoArb
 
 use nblast::nalgebra::base::{Unit, Vector3};
 use nblast::{
-    table_to_fn, DistDot, NblastArena, NeuronIdx, Precision, RStarPointTangents, Symmetry,
+    table_to_fn, DistDot, NblastArena, NeuronIdx, Precision, RStarTangentsAlphas, Symmetry,
+    TangentAlpha,
 };
 
 #[pyclass]
 pub struct ArenaWrapper {
     // TODO: can this box be avoided?
-    arena: NblastArena<RStarPointTangents, Box<dyn Fn(&DistDot) -> Precision + Sync + Send>>,
+    arena: NblastArena<RStarTangentsAlphas, Box<dyn Fn(&DistDot) -> Precision + Sync + Send>>,
     k: usize,
 }
 
@@ -59,22 +60,31 @@ impl ArenaWrapper {
 
     pub fn add_points(&mut self, py: Python, points: Vec<Vec<f64>>) -> PyResult<usize> {
         py.allow_threads(|| {
-            let neuron = RStarPointTangents::new(points.iter().map(vec_to_array3), self.k)
+            let neuron = RStarTangentsAlphas::new(points.iter().map(vec_to_array3), self.k)
                 .map_err(PyErr::new::<exceptions::RuntimeError, _>)?;
             Ok(self.arena.add_neuron(neuron))
         })
     }
 
-    pub fn add_points_tangents(
+    pub fn add_points_tangents_alphas(
         &mut self,
         py: Python,
         points: Vec<Vec<f64>>,
         tangents: Vec<Vec<f64>>,
+        alphas: Vec<f64>,
     ) -> PyResult<usize> {
         py.allow_threads(|| {
-            let neuron = RStarPointTangents::new_with_tangents(
+            let tangents_alphas = tangents
+                .iter()
+                .zip(alphas.iter())
+                .map(|(t, a)| TangentAlpha {
+                    tangent: vec_to_unitvector3(t),
+                    alpha: *a,
+                })
+                .collect();
+            let neuron = RStarTangentsAlphas::new_with_tangents_alphas(
                 points.iter().map(vec_to_array3),
-                tangents.iter().map(vec_to_unitvector3).collect(),
+                tangents_alphas,
             )
             .map_err(PyErr::new::<exceptions::RuntimeError, _>)?;
             Ok(self.arena.add_neuron(neuron))
@@ -88,6 +98,7 @@ impl ArenaWrapper {
         target_idx: NeuronIdx,
         normalize: bool,
         symmetry: Option<&str>,
+        use_alpha: bool,
     ) -> PyResult<Option<f64>> {
         py.allow_threads(|| {
             let sym = match symmetry {
@@ -98,17 +109,17 @@ impl ArenaWrapper {
             };
             Ok(self
                 .arena
-                .query_target(query_idx, target_idx, normalize, &sym))
+                .query_target(query_idx, target_idx, normalize, &sym, use_alpha))
         })
     }
 
     pub fn queries_targets(
         &self,
-        _py: Python,
         query_idxs: Vec<NeuronIdx>,
         target_idxs: Vec<NeuronIdx>,
         normalize: bool,
         symmetry: Option<&str>,
+        use_alpha: bool,
         threads: Option<usize>,
     ) -> PyResult<HashMap<(NeuronIdx, NeuronIdx), f64>> {
         let sym = match symmetry {
@@ -117,9 +128,14 @@ impl ArenaWrapper {
             })?),
             _ => None,
         };
-        Ok(self
-            .arena
-            .queries_targets(&query_idxs, &target_idxs, normalize, &sym, threads))
+        Ok(self.arena.queries_targets(
+            &query_idxs,
+            &target_idxs,
+            normalize,
+            &sym,
+            use_alpha,
+            threads,
+        ))
     }
 
     pub fn all_v_all(
@@ -127,6 +143,7 @@ impl ArenaWrapper {
         _py: Python,
         normalize: bool,
         symmetry: Option<&str>,
+        use_alpha: bool,
         threads: Option<usize>,
     ) -> PyResult<HashMap<(NeuronIdx, NeuronIdx), Precision>> {
         let sym = match symmetry {
@@ -135,15 +152,15 @@ impl ArenaWrapper {
             })?),
             _ => None,
         };
-        Ok(self.arena.all_v_all(normalize, &sym, threads))
+        Ok(self.arena.all_v_all(normalize, &sym, use_alpha, threads))
     }
 
     pub fn len(&self, _py: Python) -> usize {
         self.arena.len()
     }
 
-    pub fn self_hit(&self, _py: Python, idx: NeuronIdx) -> Option<Precision> {
-        self.arena.self_hit(idx)
+    pub fn self_hit(&self, _py: Python, idx: NeuronIdx, use_alpha: bool) -> Option<Precision> {
+        self.arena.self_hit(idx, use_alpha)
     }
 
     pub fn points(&self, _py: Python, idx: NeuronIdx) -> Option<Vec<Vec<Precision>>> {
@@ -160,6 +177,10 @@ impl ArenaWrapper {
                 .map(|v| v.into_iter().cloned().collect())
                 .collect()
         })
+    }
+
+    pub fn alphas(&self, _py: Python, idx: NeuronIdx) -> Option<Vec<Precision>> {
+        self.arena.alphas(idx)
     }
 }
 
