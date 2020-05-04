@@ -2,7 +2,7 @@ use rand::distributions::{Distribution, Uniform};
 use rand::SeedableRng;
 use rand_pcg::Pcg32;
 use rayon::prelude::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::error;
 use std::fmt;
 use std::iter;
@@ -74,7 +74,8 @@ fn match_nonmatch_distdots<T: TargetNeuron + Sync>(
     seed: u64,
     threads: Option<usize>,
 ) -> (Vec<DistDot>, Vec<DistDot>) {
-    let mut matching_jobs: HashMap<(usize, usize), usize> = HashMap::default();
+    let mut matching_len = 0;
+    let mut matching_jobs: HashSet<(usize, usize)> = HashSet::default();
     for matching_set in matching_sets {
         for q_idx in matching_set.iter() {
             let q_len = match neurons.get(*q_idx) {
@@ -82,43 +83,42 @@ fn match_nonmatch_distdots<T: TargetNeuron + Sync>(
                 None => continue,
             };
             for t_idx in matching_set.iter() {
-                if t_idx == q_idx || t_idx >= &neurons.len() {
-                    continue;
+                if t_idx != q_idx
+                    && t_idx < &neurons.len()
+                    && matching_jobs.insert((*q_idx, *t_idx))
+                {
+                    matching_len += q_len
                 }
-                matching_jobs.insert((*q_idx, *t_idx), q_len);
             }
         }
     }
 
-    let neurons_comb = neurons.len() * (neurons.len() - 1);
-    if matching_jobs.len() > neurons_comb {
-        panic!("Not enough non-matching neurons")
-    }
-
-    let matching_len = matching_jobs.iter().fold(0, |total, (_, v)| total + v);
-
-    let mut rng = Pcg32::seed_from_u64(seed);
-    let mut nonmatching_remaining = matching_len;
-    let mut nonmatching_jobs: HashSet<(usize, usize)> = HashSet::default();
-
     let nonmatching_idxs = non_matching_set
         .or_else(|| Some((0..neurons.len()).collect()))
         .unwrap();
+
+    if matching_jobs.len() > nonmatching_idxs.len() * (nonmatching_idxs.len() - 1) {
+        panic!("Not enough non-matching neurons")
+    }
+
     let range = Uniform::new(0, nonmatching_idxs.len());
 
-    while nonmatching_remaining > 0 {
+    let mut rng = Pcg32::seed_from_u64(seed);
+    let mut nonmatching_jobs: HashSet<(usize, usize)> = HashSet::default();
+
+    while matching_len > 0 {
         let q_idx = nonmatching_idxs[range.sample(&mut rng)];
         let t_idx = nonmatching_idxs[range.sample(&mut rng)];
 
         let key = (q_idx, t_idx);
-        if q_idx != t_idx || nonmatching_jobs.insert(key) {
-            nonmatching_remaining -= neurons[q_idx].len()
+        if q_idx != t_idx && nonmatching_jobs.insert(key) {
+            matching_len -= neurons[q_idx].len()
         }
     }
 
     let matching_dd = pairs_to_distdots(
         &neurons,
-        matching_jobs.drain().map(|(k, _)| k).collect(),
+        matching_jobs.drain().collect(),
         use_alpha,
         threads,
     );
@@ -179,15 +179,15 @@ pub struct ScoreMatrixBuilder<T: TargetNeuron> {
 }
 
 #[derive(Debug)]
-pub struct MissingBinsErr {}
+pub struct ScoreMatBuildErr {}
 
-impl fmt::Display for MissingBinsErr {
+impl fmt::Display for ScoreMatBuildErr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Bins not set")
+        write!(f, "Bins not set or not matching neurons given")
     }
 }
 
-impl error::Error for MissingBinsErr {
+impl error::Error for ScoreMatBuildErr {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
     }
@@ -263,9 +263,14 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
         )
     }
 
-    pub fn build(self) -> Result<(Vec<Precision>, Vec<Precision>, Vec<Precision>), MissingBinsErr> {
-        let dist_bins = self.dist_bins_upper.ok_or(MissingBinsErr {})?;
-        let dot_bins = self.dot_bins_upper.ok_or(MissingBinsErr {})?;
+    pub fn build(
+        self,
+    ) -> Result<(Vec<Precision>, Vec<Precision>, Vec<Precision>), ScoreMatBuildErr> {
+        let dist_bins = self.dist_bins_upper.ok_or(ScoreMatBuildErr {})?;
+        let dot_bins = self.dot_bins_upper.ok_or(ScoreMatBuildErr {})?;
+        if self.matching_sets.is_empty() {
+            return Err(ScoreMatBuildErr {});
+        }
 
         let (matching, nonmatching) = match_nonmatch_distdots(
             &self.neurons,
