@@ -59,7 +59,7 @@
 //! A pre-calculated table of point match scores can be converted into a function with [table_to_fn](fn.table_to_fn.html).
 use nalgebra::base::{Matrix3, Unit, Vector3};
 use rstar::primitives::PointWithData;
-use rstar::RTree;
+use rstar::{PointDistance, RTree};
 use std::collections::{HashMap, HashSet};
 
 #[cfg(feature = "parallel")]
@@ -552,9 +552,8 @@ impl TargetNeuron for RStarTangentsAlphas {
         alpha: Option<Precision>,
     ) -> DistDot {
         self.rtree
-            .nearest_neighbor_iter_with_distance(point)
-            .next()
-            .map(|(element, dist2)| {
+            .nearest_neighbor(point)
+            .map(|element| {
                 let ta = self.tangents_alphas[element.data];
                 let raw_dot = ta.tangent.dot(tangent).abs();
                 let dot = match alpha {
@@ -562,7 +561,7 @@ impl TargetNeuron for RStarTangentsAlphas {
                     None => raw_dot,
                 };
                 DistDot {
-                    dist: dist2.sqrt(),
+                    dist: element.distance_2(point).sqrt(),
                     dot,
                 }
             })
