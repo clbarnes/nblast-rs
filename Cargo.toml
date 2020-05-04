@@ -4,3 +4,6 @@ members = [
   "nblast-py",
   "nblast-rs",
 ]
+
+# [profile.release]
+# debug = true
