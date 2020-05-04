@@ -4,6 +4,7 @@ from pathlib import Path
 import logging
 import datetime as dt
 from contextlib import contextmanager
+import os
 
 from tqdm import tqdm
 import pandas as pd
@@ -16,7 +17,16 @@ time_log = logging.getLogger(__name__ + ".time")
 
 here = Path(__file__).resolve().parent
 
-THREADS = 8
+
+def get_threads():
+    val = os.environ.get("NBLAST_THREADS", 0)
+    if val.lower() == "none":
+        return None
+    else:
+        return int(val)
+
+
+THREADS = get_threads()
 logger.warning("Running with THREADS = %s", THREADS)
 
 URL_PREFIX = "https://github.com/clbarnes/nblast-rs/files"
