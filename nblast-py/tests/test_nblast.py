@@ -93,9 +93,11 @@ def test_all_v_all(arena_names: Tuple[NblastArena, Dict[int, str]]):
 
 
 def test_all_v_all_par(arena_names: Tuple[NblastArena, Dict[int, str]]):
-    ser = all_v_all(*arena_names, threads=None)
-    par = all_v_all(*arena_names, threads=0)
-    assert ser == par
+    t_none = all_v_all(*arena_names, threads=None)
+    t_1 = all_v_all(*arena_names, threads=1)
+    t_0 = all_v_all(*arena_names, threads=0)
+    assert t_none == t_1
+    assert t_1 == t_0
 
 
 def test_normed(arena_names):
