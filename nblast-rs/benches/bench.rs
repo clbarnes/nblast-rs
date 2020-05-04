@@ -143,7 +143,7 @@ fn bench_query(b: &mut Bencher) {
     let target =
         RStarTangentsAlphas::new(&read_points(NAMES[1]), N_NEIGHBORS).expect("couldn't parse");
 
-    b.iter(|| query.query(&target, &score_fn, false))
+    b.iter(|| query.query(&target, false, &score_fn))
 }
 
 fn bench_rstarpt_construction(b: &mut Bencher) {
