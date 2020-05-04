@@ -1,0 +1,7 @@
+pandas
+ipython
+jupyter
+pynblast
+numpy
+tqdm
+
