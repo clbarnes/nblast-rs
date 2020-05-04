@@ -1,7 +1,5 @@
 from contextlib import contextmanager
 
-import pytest
-
 from pynblast import ResamplingArbor
 
 

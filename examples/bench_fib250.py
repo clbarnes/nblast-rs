@@ -50,9 +50,7 @@ def ingest_dotprops():
     DOTPROPS_FPATH = here / DOTPROPS_NAME
 
     if not DOTPROPS_FPATH.is_file():
-        raise ValueError(
-            f"Download necessary data from\n\t{DOTPROPS_URL}"
-        )
+        raise ValueError(f"Download necessary data from\n\t{DOTPROPS_URL}")
 
     with zf.ZipFile(DOTPROPS_FPATH) as z:
         with z.open(DOTPROPS_FPATH.name[:-4]) as f:
@@ -82,7 +80,9 @@ def timer(name):
     finished = dt.datetime.now()
     time_log.warning(
         "%s finished at %s, taking %s seconds",
-        name, finished, (finished - started).total_seconds()
+        name,
+        finished,
+        (finished - started).total_seconds(),
     )
 
 
@@ -95,7 +95,7 @@ def populate_arena(skids, pt_tan_as):
         for skid, pt_tan_a in tqdm(
             zip(skids, pt_tan_as),
             desc="Loading arena (building spatial trees)",
-            total=len(skids)
+            total=len(skids),
         ):
             idx = arena.add_points_tangents_alphas(*pt_tan_a)
             idx_to_skid[idx] = skid
