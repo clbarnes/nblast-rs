@@ -19,11 +19,13 @@ here = Path(__file__).resolve().parent
 
 
 def get_threads():
-    val = os.environ.get("NBLAST_THREADS", 0)
-    if val.lower() == "none":
-        return None
-    else:
+    val = os.environ.get("NBLAST_THREADS", 0) or 0
+    try:
         return int(val)
+    except ValueError:
+        if val.lower() == "none":
+            return None
+        raise
 
 
 THREADS = get_threads()
