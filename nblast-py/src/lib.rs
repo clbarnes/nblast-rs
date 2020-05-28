@@ -12,13 +12,6 @@ use nblast::{
     TangentAlpha,
 };
 
-#[pyclass]
-pub struct ArenaWrapper {
-    // TODO: can this box be avoided?
-    arena: NblastArena<RStarTangentsAlphas, Box<dyn Fn(&DistDot) -> Precision + Sync + Send>>,
-    k: usize,
-}
-
 fn vec_to_array3<T: Sized + Copy>(v: &Vec<T>) -> [T; 3] {
     [v[0], v[1], v[2]]
 }
@@ -40,6 +33,15 @@ fn str_to_sym(s: &str) -> Result<Symmetry, ()> {
     }
 }
 
+#[cfg(not(test))]
+#[pyclass]
+pub struct ArenaWrapper {
+    // TODO: can this box be avoided?
+    arena: NblastArena<RStarTangentsAlphas, Box<dyn Fn(&DistDot) -> Precision + Sync + Send>>,
+    k: usize,
+}
+
+#[cfg(not(test))]
 #[pymethods]
 impl ArenaWrapper {
     #[new]
@@ -184,12 +186,14 @@ impl ArenaWrapper {
     }
 }
 
+#[cfg(not(test))]
 #[pyclass]
 struct ResamplingArbor {
     tree: Tree<(usize, [Precision; 3])>,
     tnid_to_id: HashMap<usize, NodeId>,
 }
 
+#[cfg(not(test))]
 #[pymethods]
 impl ResamplingArbor {
     #[new]
@@ -285,6 +289,7 @@ impl ResamplingArbor {
     }
 }
 
+#[cfg(not(test))]
 #[pymodule]
 fn pynblast(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ArenaWrapper>()?;
