@@ -1,6 +1,6 @@
 language: python
 os: linux
-dist: xenial
+dist: bionic
 cache:
   - pip
   - cargo
@@ -13,14 +13,6 @@ env:
   - TRAVIS_RUST_VERSION=nightly-2020-02-03
   - RUST_BACKTRACE=1
 
-rust_test: &rust_test
-  stage: test
-  before_install:
-    - source ci/travis/setup_rust.sh
-  script:
-    - cd nblast-rs
-    - cargo test --verbose
-
 python_test: &python_test
   stage: test
   before_install:
@@ -30,37 +22,53 @@ python_test: &python_test
   install:
     - maturin develop
   script:
-    #- cargo test --verbose  # "linking with cc failed"?
     - pytest -v
-    - flake8 pynblast tests
-    - black --check pynblast tests
-
-bash_deploy: &bash_deploy
-  stage: deploy
-  if: tag =~ /^py-v\d+.*/
-  before_install:
-    - source ci/travis/setup_rust.sh
-  install:
-    - cd nblast-py
-    - pip install $(grep '^maturin' requirements.txt)
-  script:
-    - maturin publish -u $PYPI_USERNAME -p $PYPI_PASSWORD -i python3.8 -i python3.7 -i python3.6
 
 jobs:
   include:
-    - <<: *rust_test
+
+    # TEST
+
+    - stage: test
       name: "test rust"
+      before_install:
+        - source ci/travis/setup_rust.sh
+      install:
+        - cd nblast-rs
+        - cargo build
+      script:
+        - cargo test
+        - cargo clippy
+        - cargo fmt -- --check
+
+    - stage: test
+      name: "lint python"
+      python: 3.8
+      before_install:
+        - cd nblast-py
+        - pip install $(grep '^black' requirements.txt)
+        - pip install $(grep '^flake8' requirements.txt)
+      script:
+        - flake8 pynblast tests
+        - black --check pynblast tests
+
     - <<: *python_test
       name: "test py36"
       python: 3.6
+
     - <<: *python_test
       name: "test py37"
       python: 3.7
+
     - <<: *python_test
       name: "test py38"
       python: 3.8
-    - <<: *bash_deploy
-      name: "Linux PyPI"
+
+    # DEPLOY
+
+    - stage: deploy
+      name: "PyPI (linux)"
+      if: tag =~ /^py-v\d+.*/
       addons:
         apt:
           sources:
@@ -69,8 +77,16 @@ jobs:
             - python3.6
             - python3.7
             - python3.8
-    - # stage: deploy  # deploy stage is implied
-      name: "deploy to crates.io"
+      before_install:
+        - source ci/travis/setup_rust.sh
+      install:
+        - cd nblast-py
+        - pip install $(grep '^maturin' requirements.txt)
+      script:
+        - maturin publish -u $PYPI_USERNAME -p $PYPI_PASSWORD -i python3.8 -i python3.7 -i python3.6
+
+    - stage: deploy  # implied
+      name: "crates.io"
       if: tag =~ /^rs-v\d+.*/
       before_install:
         - source ci/travis/setup_rust.sh
