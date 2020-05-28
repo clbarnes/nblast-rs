@@ -6,7 +6,7 @@ import pytest
 import pandas as pd
 import numpy as np
 
-EPSILON = 0.001
+REL_TOL = 0.025
 
 
 def dict_to_df(idxs_to_score, idx_to_name):
@@ -31,4 +31,4 @@ def test_vs_r(arena_names, expected_nblast):
         t_name = idx_to_name[t_idx]
         score = idxs_to_score[(q_idx, t_idx)]
         expected_score = expected_nblast.loc[q_name][t_name]
-        assert score == pytest.approx(expected_score, abs=EPSILON)
+        assert score == pytest.approx(expected_score, rel=REL_TOL)
