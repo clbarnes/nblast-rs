@@ -165,6 +165,21 @@ fn calculate_cells(
         .collect()
 }
 
+#[derive(Debug)]
+pub struct ScoreMatBuildErr {}
+
+impl fmt::Display for ScoreMatBuildErr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Bins not set or no matching neurons given")
+    }
+}
+
+impl error::Error for ScoreMatBuildErr {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        None
+    }
+}
+
 pub struct ScoreMatrixBuilder<T: TargetNeuron> {
     // Data set of neuron point clouds
     neurons: Vec<T>,
@@ -176,21 +191,6 @@ pub struct ScoreMatrixBuilder<T: TargetNeuron> {
     threads: Option<usize>,
     dist_bins_upper: Option<Vec<Precision>>,
     dot_bins_upper: Option<Vec<Precision>>,
-}
-
-#[derive(Debug)]
-pub struct ScoreMatBuildErr {}
-
-impl fmt::Display for ScoreMatBuildErr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Bins not set or not matching neurons given")
-    }
-}
-
-impl error::Error for ScoreMatBuildErr {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        None
-    }
 }
 
 impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
@@ -237,7 +237,7 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
         n_dist_bins: usize,
         greatest_lower_bound: Precision,
         base: Precision,
-    ) -> &Self {
+    ) -> &mut Self {
         let log_greatest = greatest_lower_bound.log(base);
         let step = log_greatest / (n_dist_bins - 1) as Precision;
         let mut v: Vec<_> = (1..n_dist_bins)
@@ -249,12 +249,12 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
         self
     }
 
-    pub fn set_dot_bins<'a>(&'a mut self, dot_bins_upper: Vec<Precision>) -> &'a Self {
+    pub fn set_dot_bins<'a>(&'a mut self, dot_bins_upper: Vec<Precision>) -> &'a mut Self {
         self.dot_bins_upper = Some(dot_bins_upper);
         self
     }
 
-    pub fn set_n_dot_bins(&mut self, n_dot_bins: usize) -> &Self {
+    pub fn set_n_dot_bins(&mut self, n_dot_bins: usize) -> &mut Self {
         let step = 1.0 / n_dot_bins as Precision;
         self.set_dot_bins(
             (1..(n_dot_bins + 1))
