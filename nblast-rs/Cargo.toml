@@ -40,3 +40,8 @@ default = ["parallel"]
 
 name = "bench"
 harness = false
+
+[package.metadata.release]
+disable-publish = true
+no-dev-version = true
+tag-prefix = "rs-"
