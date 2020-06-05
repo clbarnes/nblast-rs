@@ -89,22 +89,18 @@ fn pairs_to_distdots<T: TargetNeuron + Sync>(
     }
 }
 
-/// Calculate the DistDots for matching and non-matching neurons.
+/// Generate the "jobs" for matching and nonmatching neuron queries.
 ///
 /// Every non-repeating 2-length permutation of neurons within each matching set is used.
 /// Then, pairs of neurons are taken randomly from the non-matching set
 /// (if `None`, use all neurons) until there are at least as many non-matching DistDots
 /// as there are matching.
-///
-/// Return a tuple of vecs of matching and non-matching DistDots.
-fn match_nonmatch_distdots<T: TargetNeuron + Sync>(
+fn match_nonmatch_jobs<T: TargetNeuron>(
     neurons: &[T],
     matching_sets: &[HashSet<usize>],
     non_matching_set: Option<Vec<usize>>,
-    use_alpha: bool,
     seed: u64,
-    threads: Option<usize>,
-) -> (Vec<DistDot>, Vec<DistDot>) {
+) -> (HashSet<(usize, usize)>, HashSet<(usize, usize)>) {
     let mut matching_len = 0;
     let mut matching_jobs: HashSet<(usize, usize)> = HashSet::default();
 
@@ -156,6 +152,28 @@ fn match_nonmatch_distdots<T: TargetNeuron + Sync>(
             matching_len -= neurons[q_idx].len()
         }
     }
+
+    (matching_jobs, nonmatching_jobs)
+}
+
+/// Calculate the DistDots for matching and non-matching neurons.
+///
+/// Every non-repeating 2-length permutation of neurons within each matching set is used.
+/// Then, pairs of neurons are taken randomly from the non-matching set
+/// (if `None`, use all neurons) until there are at least as many non-matching DistDots
+/// as there are matching.
+///
+/// Return a tuple of vecs of matching and non-matching DistDots.
+fn match_nonmatch_distdots<T: TargetNeuron + Sync>(
+    neurons: &[T],
+    matching_sets: &[HashSet<usize>],
+    non_matching_set: Option<Vec<usize>>,
+    use_alpha: bool,
+    seed: u64,
+    threads: Option<usize>,
+) -> (Vec<DistDot>, Vec<DistDot>) {
+    let (mut matching_jobs, mut nonmatching_jobs) =
+        match_nonmatch_jobs(neurons, matching_sets, non_matching_set, seed);
 
     // ! passing round vecs is easier to parallelise but unnecessarily RAM-intensive
     // can we use iterators instead?
