@@ -16,8 +16,8 @@
 //!
 //! This is handled by the ScoreMatrixBuilder.
 //! The dist and dot bins for the table are can be set manually or determined
-//! based on how many bins there should be, distributed linearly
-//! and logarithmically (with a given base) respectively.
+//! based on how many bins there should be, distributed logarithmically
+//! (with a given base) and linearly respectively.
 use rand::distributions::{Distribution, Uniform};
 use rand::SeedableRng;
 use rand_pcg::Pcg32;
@@ -26,151 +26,15 @@ use std::collections::HashSet;
 use std::error;
 use std::fmt;
 use std::iter;
+use std::sync::mpsc::channel;
 
+use crate::{BinLookup, NdBinLookup, RangeTable};
 use crate::{DistDot, Precision, TargetNeuron};
 
 const EPSILON: Precision = 1e-6;
 
-/// If both indexes are in the neuron slice, get the DistDots between them.
-fn idx_to_distdots(
-    neurons: &[impl TargetNeuron],
-    q_idx: usize,
-    t_idx: usize,
-    use_alpha: bool,
-) -> Option<Vec<DistDot>> {
-    let q = neurons.get(q_idx)?;
-    let t = neurons.get(t_idx)?;
-    Some(q.query_dist_dots(t, use_alpha))
-}
-
-/// For all given `(query, target)` index pairs, find DistDots and flatten
-/// into a single array.
-fn pairs_to_distdots_ser(
-    neurons: &[impl TargetNeuron],
-    jobs: impl IntoIterator<Item = (usize, usize)>,
-    use_alpha: bool,
-) -> Vec<DistDot> {
-    jobs.into_iter()
-        .filter_map(|(q_idx, t_idx)| idx_to_distdots(neurons, q_idx, t_idx, use_alpha))
-        .flatten()
-        .collect()
-}
-
-#[cfg(not(feature = "parallel"))]
-fn pairs_to_distdots<T: TargetNeuron + Sync>(
-    neurons: &[T],
-    jobs: Vec<(usize, usize)>,
-    use_alpha: bool,
-    threads: Option<usize>,
-) -> Vec<DistDot> {
-    pairs_to_distdots_ser(neurons, jobs, use_alpha)
-}
-
-#[cfg(feature = "parallel")]
-fn pairs_to_distdots<T: TargetNeuron + Sync>(
-    neurons: &[T],
-    jobs: Vec<(usize, usize)>,
-    use_alpha: bool,
-    threads: Option<usize>,
-) -> Vec<DistDot> {
-    if let Some(t) = threads {
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(t)
-            .build()
-            .unwrap();
-        pool.install(|| {
-            jobs.into_par_iter()
-                .filter_map(|(q_idx, t_idx)| idx_to_distdots(neurons, q_idx, t_idx, use_alpha))
-                .flatten()
-                .collect()
-        })
-    } else {
-        pairs_to_distdots_ser(neurons, jobs, use_alpha)
-    }
-}
-
 type JobSet = HashSet<(usize, usize)>;
 
-/// Generate the "jobs" for matching and nonmatching neuron queries.
-///
-/// Every non-repeating 2-length permutation of neurons within each matching set is used.
-/// Then, pairs of neurons are taken randomly from the non-matching set
-/// (if `None`, use all neurons) until there are at least as many non-matching DistDots
-/// as there are matching.
-fn match_nonmatch_jobs<T: TargetNeuron>(
-    neurons: &[T],
-    matching_sets: &[HashSet<usize>],
-    non_matching_set: Option<Vec<usize>>,
-    seed: u64,
-) -> (JobSet, JobSet) {
-    let mut matching_len = 0;
-    let mut matching_jobs = JobSet::default();
-
-    // for every matching set
-    for matching_set in matching_sets {
-        // for every possible query idx
-        for q_idx in matching_set.iter() {
-            // if the idx is in the given neurons
-            let q_len = match neurons.get(*q_idx) {
-                Some(n) => n.len(),
-                None => continue,
-            };
-            // for every possible target idx
-            for t_idx in matching_set.iter() {
-                // if t!=q, t exists, and the pair is not already addressed
-                if t_idx != q_idx
-                    && t_idx < &neurons.len()
-                    && matching_jobs.insert((*q_idx, *t_idx))
-                {
-                    // keep track of how many distdots we're producing
-                    matching_len += q_len
-                }
-            }
-        }
-    }
-
-    // if nonmatching not given, use all neurons
-    let nonmatching_idxs = non_matching_set
-        .or_else(|| Some((0..neurons.len()).collect()))
-        .unwrap();
-
-    if matching_jobs.len() > nonmatching_idxs.len() * (nonmatching_idxs.len() - 1) {
-        panic!("Not enough non-matching neurons")
-    }
-
-    let range = Uniform::new(0, nonmatching_idxs.len());
-
-    let mut rng = Pcg32::seed_from_u64(seed);
-    let mut nonmatching_jobs: HashSet<(usize, usize)> = HashSet::default();
-
-    // randomly pick nonmatching pairs until we have requested as many distdots
-    // as we did for matching
-    while matching_len > 0 {
-        let q_idx = nonmatching_idxs[range.sample(&mut rng)];
-        let t_idx = nonmatching_idxs[range.sample(&mut rng)];
-
-        let key = (q_idx, t_idx);
-        if q_idx != t_idx && !matching_jobs.contains(&key) && nonmatching_jobs.insert(key) {
-            matching_len -= neurons[q_idx].len()
-        }
-    }
-
-    (matching_jobs, nonmatching_jobs)
-}
-
-fn calculate_cells(
-    dist_thresholds: &[Precision],
-    dot_thresholds: &[Precision],
-    distdots: Vec<DistDot>,
-) -> Vec<usize> {
-    let n_cells = dist_thresholds.len() * dot_thresholds.len();
-    let mut counts: Vec<usize> = iter::repeat(0).take(n_cells).collect();
-
-    for dd in distdots {
-        counts[dd.to_linear_idx(dist_thresholds, dot_thresholds)] += 1;
-    }
-    counts
-}
 
 #[derive(Debug)]
 pub struct ScoreMatBuildErr {}
@@ -187,98 +51,22 @@ impl error::Error for ScoreMatBuildErr {
     }
 }
 
-struct IntervalLookup<T: PartialOrd> {
-    thresholds: Vec<T>,
-    highest: usize,
-}
-
-impl<T: PartialOrd + Copy> IntervalLookup<T> {
-    fn new(thresholds: Vec<T>) -> Self {
-        let highest = thresholds.len() - 1;
-        Self {
-            thresholds,
-            highest,
-        }
+/// Generate `count` logarithmically-spaced values from 0 up to (and including) `max`,
+/// using the given `base`.
+/// Make sure to use a large enough `count` (needs to be larger for smaller bases),
+/// otherwise there will be a large jump between 0 and the first value.
+fn logspace(count: usize, max: Precision, base: Precision) -> Vec<Precision> {
+    // TODO: do this better
+    assert!(count > 2);
+    assert!(base > 1.0);
+    let mut v = vec![max];
+    while v.len() < count - 1 {
+        let new_val = v.last().unwrap() / base;
+        v.push(new_val);
     }
-
-    fn to_idx(&self, val: &T) -> usize {
-        let raw = match self
-            .thresholds
-            .binary_search_by(|bound| bound.partial_cmp(&val).unwrap())
-        {
-            Ok(idx) => idx + 1,
-            Err(idx) => idx,
-        };
-        self.highest.min(raw)
-    }
-}
-
-pub struct NdIntervalLookup<T: PartialOrd> {
-    lookups: Vec<IntervalLookup<T>>,
-    cells: Vec<T>,
-    idx_mult: Vec<usize>,
-}
-
-impl<T: PartialOrd + Copy> NdIntervalLookup<T> {
-    fn new(thresholds: Vec<Vec<T>>, cells: Vec<T>) -> Result<Self, ()> {
-        let thresh_lens: Vec<usize> = thresholds.iter().map(|t| t.len()).collect();
-        let mut n_cells = thresh_lens.iter().product();
-        if n_cells != cells.len() {
-            return Err(());
-        }
-
-        let mut idx_mult = Vec::with_capacity(thresholds.len());
-        for thresh_len in thresh_lens {
-            n_cells /= thresh_len;
-            idx_mult.push(n_cells);
-        }
-
-        Ok(NdIntervalLookup {
-            lookups: thresholds.into_iter().map(IntervalLookup::new).collect(),
-            cells,
-            idx_mult,
-        })
-    }
-
-    fn to_idxs(&self, vals: &[T]) -> Vec<usize> {
-        assert_eq!(vals.len(), self.lookups.len());
-        vals.iter()
-            .zip(self.lookups.iter())
-            .map(|(v, l)| l.to_idx(v))
-            .collect()
-    }
-
-    fn to_linear_idx(&self, vals: &[T]) -> usize {
-        self.to_idxs(vals)
-            .iter()
-            .zip(self.idx_mult.iter())
-            .fold(0, |sum, (idx, mult)| sum + idx * mult)
-    }
-
-    fn lookup(&self, vals: &[T]) -> T {
-        self.cells[self.to_linear_idx(vals)]
-    }
-}
-
-// TODO: use reference to this instead of function?
-pub struct ScoreMatrix {
-    inner: NdIntervalLookup<Precision>,
-}
-
-impl ScoreMatrix {
-    pub fn new(
-        dist_thresholds: Vec<Precision>,
-        dot_thresholds: Vec<Precision>,
-        cells: Vec<Precision>,
-    ) -> Result<Self, ()> {
-        Ok(Self {
-            inner: NdIntervalLookup::new(vec![dist_thresholds, dot_thresholds], cells)?,
-        })
-    }
-
-    pub fn lookup(&self, dd: &DistDot) -> Precision {
-        self.inner.lookup(&[dd.dist, dd.dot])
-    }
+    v.push(0.0);
+    v.reverse();
+    v
 }
 
 /// Calculate a score matrix (lookup table for converting point matches
@@ -296,8 +84,8 @@ pub struct ScoreMatrixBuilder<T: TargetNeuron> {
     nonmatching: Option<Vec<usize>>,
     use_alpha: bool,
     threads: Option<usize>,
-    dist_bins_upper: Option<Vec<Precision>>,
-    dot_bins_upper: Option<Vec<Precision>>,
+    dist_bin_lookup: Option<BinLookup<Precision>>,
+    dot_bin_lookup: Option<BinLookup<Precision>>,
 }
 
 impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
@@ -310,8 +98,8 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
             nonmatching: None,
             use_alpha: false,
             threads: Some(0),
-            dist_bins_upper: None,
-            dot_bins_upper: None,
+            dist_bin_lookup: None,
+            dot_bin_lookup: None,
         }
     }
 
@@ -357,12 +145,11 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
         self
     }
 
-    /// Manually set the upper bounds of the distance bins.
-    /// The lowest bound is implicitly 0.
-    /// The upper bound is effectively ignored, as values above that value
-    /// snap into the highest bin anyway.
-    pub fn set_dist_bins<'a>(&'a mut self, dist_bins_upper: Vec<Precision>) -> &mut Self {
-        self.dist_bins_upper = Some(dist_bins_upper);
+    /// Manually set the bounds of the distance bins.
+    /// The first and last bounds are effectively ignored,
+    /// as values outside that range are snapped to the bottom and top bins.
+    pub fn set_dist_bins<'a>(&'a mut self, bins: Vec<Precision>) -> &mut Self {
+        self.dist_bin_lookup = Some(BinLookup::new(bins, (true, true)).expect("Illegal bins"));
         self
     }
 
@@ -370,39 +157,33 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
     /// between 0 and `greatest_lower_bound`, using a logarithm of the given `base`.
     pub fn set_n_dist_bins(
         &mut self,
-        n_dist_bins: usize,
+        n_bins: usize,
         greatest_lower_bound: Precision,
         base: Precision,
     ) -> &mut Self {
-        let log_greatest = greatest_lower_bound.log(base);
-        let step = log_greatest / (n_dist_bins - 1) as Precision;
-        let mut v: Vec<_> = (1..n_dist_bins)
-            .map(|n| (step * n as Precision).powf(base))
-            .collect();
-        // ? better way to get infinity
+        let mut v = logspace(n_bins, greatest_lower_bound, base);
         v.push(1.0 / 0.0);
         self.set_dist_bins(v)
     }
 
     /// Manually set the upper bounds of the abs dot product bins.
-    /// The lowest bound is implicitly 0.
-    /// The upper bound is effectively ignored, as values above that value
-    /// snap into the highest bin anyway.
+    /// The first and last bounds are effectively ignored, as values outside those values
+    /// snap into their closest bins.
     ///
     /// Because the tangent vectors are unit-length,
     /// absolute dot products between them are between 0 and 1
     /// (although float precision means values slightly above 1 are possible).
-    pub fn set_dot_bins<'a>(&'a mut self, dot_bins_upper: Vec<Precision>) -> &'a mut Self {
-        self.dot_bins_upper = Some(dot_bins_upper);
+    pub fn set_dot_bins<'a>(&'a mut self, dot_bin_boundaries: Vec<Precision>) -> &'a mut Self {
+        self.dot_bin_lookup = Some(BinLookup::new(dot_bin_boundaries, (true, true)).expect("Illegal bins"));
         self
     }
 
     /// Automatically generate abs dot product bins by linearly interpolating between
     /// 0 and 1.
     pub fn set_n_dot_bins(&mut self, n_dot_bins: usize) -> &mut Self {
-        let step = 1.0 / n_dot_bins as Precision;
+        let step = 1.0 / (n_dot_bins + 1) as Precision;
         self.set_dot_bins(
-            (1..(n_dot_bins + 1))
+            (0..(n_dot_bins + 1))
                 .map(|n| step * n as Precision)
                 .collect(),
         )
@@ -410,41 +191,30 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
 
     /// Return a tuple of `(dist_bins, dot_bins, cells)` in the forms accepted by
     /// `table_to_fn`.
-    pub fn build(self) -> Result<ScoreMatrix, ScoreMatBuildErr> {
-        let dist_thresholds = self.dist_bins_upper.ok_or(ScoreMatBuildErr {})?;
-        let dot_thresholds = self.dot_bins_upper.ok_or(ScoreMatBuildErr {})?;
+    pub fn build(&self) -> Result<RangeTable<Precision, Precision>, ScoreMatBuildErr> {
         if self.matching_sets.is_empty() {
             return Err(ScoreMatBuildErr {});
         }
+        let dist_bin_lookup = match &self.dist_bin_lookup {
+            Some(lookup) => lookup.clone(),
+            None => return Err(ScoreMatBuildErr {}),
+        };
+        let dot_bin_lookup = match &self.dot_bin_lookup {
+            Some(lookup) => lookup.clone(),
+            None => return Err(ScoreMatBuildErr {}),
+        };
 
-        let (mut match_jobs, mut nonmatch_jobs) = match_nonmatch_jobs(
-            &self.neurons,
-            &self.matching_sets,
-            self.nonmatching,
-            self.seed,
-        );
+        let dist_dot_lookup = NdBinLookup::new(vec![dist_bin_lookup, dot_bin_lookup]);
 
+        let (match_jobs, nonmatch_jobs) = self._match_nonmatch_jobs();
         let matching_factor = nonmatch_jobs.len() as Precision / match_jobs.len() as Precision;
 
-        let matching_dd = pairs_to_distdots(
-            &self.neurons,
-            match_jobs.drain().collect(),
-            self.use_alpha,
-            self.threads,
-        );
-        let matching_counts = calculate_cells(&dist_thresholds, &dot_thresholds, matching_dd);
+        let match_counts = self._pairs_to_counts(match_jobs, &dist_dot_lookup);
+        let nonmatch_counts = self._pairs_to_counts(nonmatch_jobs, &dist_dot_lookup);
 
-        let nonmatching_dd = pairs_to_distdots(
-            &self.neurons,
-            nonmatch_jobs.drain().collect(),
-            self.use_alpha,
-            self.threads,
-        );
-        let nonmatching_counts = calculate_cells(&dist_thresholds, &dot_thresholds, nonmatching_dd);
-
-        let cells = matching_counts
+        let cells = match_counts
             .into_iter()
-            .zip(nonmatching_counts.into_iter())
+            .zip(nonmatch_counts.into_iter())
             .map(|(match_count, nonmatch_count)| {
                 // add epsilon to prevent division by 0
                 ((match_count as Precision * matching_factor + EPSILON)
@@ -453,6 +223,153 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
             })
             .collect();
 
-        Ok(ScoreMatrix::new(dist_thresholds, dot_thresholds, cells).unwrap())
+        Ok(RangeTable { bins_lookup: dist_dot_lookup, cells })
+    }
+
+    /// Generate the "jobs" for matching and nonmatching neuron queries.
+    ///
+    /// Every non-repeating 2-length permutation of neurons within each matching set is used.
+    /// Then, pairs of neurons are taken randomly from the non-matching set
+    /// (if `None`, use all neurons) until there are at least as many non-matching DistDots
+    /// as there are matching.
+    fn _match_nonmatch_jobs(&self) -> (JobSet, JobSet) {
+        let mut matching_len = 0;
+        let mut matching_jobs = JobSet::default();
+
+        // for every matching set
+        for matching_set in self.matching_sets.iter() {
+            // for every possible query idx
+            for q_idx in matching_set.iter() {
+                // if the idx is in the given neurons
+                let q_len = match self.neurons.get(*q_idx) {
+                    Some(n) => n.len(),
+                    None => continue,
+                };
+                // for every possible target idx
+                for t_idx in matching_set.iter() {
+                    // if t!=q, t exists, and the pair is not already addressed
+                    if t_idx != q_idx
+                        && t_idx < &self.neurons.len()
+                        && matching_jobs.insert((*q_idx, *t_idx))
+                    {
+                        // keep track of how many distdots we're producing
+                        matching_len += q_len
+                    }
+                }
+            }
+        }
+
+        // if nonmatching not given, use all neurons
+        let nonmatching_idxs = self.nonmatching
+            .as_ref()
+            .cloned()  // ? is this avoidable
+            .or_else(|| Some((0..self.neurons.len()).collect()))
+            .unwrap();
+
+        if matching_jobs.len() > nonmatching_idxs.len() * (nonmatching_idxs.len() - 1) {
+            panic!("Not enough non-matching neurons")
+        }
+
+        let range = Uniform::new(0, nonmatching_idxs.len());
+
+        let mut rng = Pcg32::seed_from_u64(self.seed);
+        let mut nonmatching_jobs: HashSet<(usize, usize)> = HashSet::default();
+
+        // randomly pick nonmatching pairs until we have requested as many distdots
+        // as we did for matching
+        while matching_len > 0 {
+            let q_idx = nonmatching_idxs[range.sample(&mut rng)];
+            let t_idx = nonmatching_idxs[range.sample(&mut rng)];
+
+            let key = (q_idx, t_idx);
+            if q_idx != t_idx && !matching_jobs.contains(&key) && nonmatching_jobs.insert(key) {
+                matching_len -= self.neurons[q_idx].len()
+            }
+        }
+
+        (matching_jobs, nonmatching_jobs)
+    }
+
+    /// If both indexes are in the neuron slice, get the DistDots between them.
+    fn _idx_to_distdots(&self, q_idx: usize, t_idx: usize) -> Option<Vec<DistDot>> {
+        let q = self.neurons.get(q_idx)?;
+        let t = self.neurons.get(t_idx)?;
+        Some(q.query_dist_dots(t, self.use_alpha))
+    }
+
+    /// For all given `(query, target)` index pairs, find DistDots and flatten
+    /// into a single array.
+    fn _pairs_to_counts_ser(
+        &self,
+        jobs: impl IntoIterator<Item = (usize, usize)>,
+        dist_dot_lookup: &NdBinLookup<Precision>,
+    ) -> Vec<usize> {
+        let mut counts: Vec<usize> = iter::repeat(0).take(dist_dot_lookup.n_cells).collect();
+
+        let distdots = jobs
+            .into_iter()
+            .filter_map(|(q_idx, t_idx)| self._idx_to_distdots(q_idx, t_idx))
+            .flatten();
+
+        for dd in distdots {
+            let idx = dist_dot_lookup.to_linear_idx(&[dd.dist, dd.dot]).unwrap();
+            counts[idx] += 1;
+        }
+        counts
+    }
+
+    #[cfg(not(feature = "parallel"))]
+    fn _pairs_to_counts(
+        &self,
+        jobs: HashSet<(usize, usize)>,
+        dist_dot_lookup: &NdBinLookup<Precision>,
+    ) -> Vec<usize> {
+        self._pairs_to_counts_ser(jobs, dist_dot_lookup)
+    }
+
+    #[cfg(feature = "parallel")]
+    fn _pairs_to_counts(
+        &self,
+        jobs: HashSet<(usize, usize)>,
+        dist_dot_lookup: &NdBinLookup<Precision>,
+    ) -> Vec<usize> {
+        if let Some(t) = self.threads {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(t)
+                .build()
+                .unwrap();
+            pool.install(|| {
+                let (sender, receiver) = channel();
+
+                jobs.into_par_iter()
+                    .filter_map(|(q_idx, t_idx)| self._idx_to_distdots(q_idx, t_idx))
+                    .flatten()
+                    .map(|dd| dist_dot_lookup.to_linear_idx(&[dd.dist, dd.dot]).unwrap())
+                    .for_each_with(sender, |s, x| s.send(x).unwrap());
+
+                let mut counts: Vec<usize> = iter::repeat(0).take(dist_dot_lookup.n_cells).collect();
+
+                for idx in receiver.iter() {
+                    counts[idx] += 1;
+                }
+                counts
+            })
+        } else {
+            self._pairs_to_counts_ser(jobs, dist_dot_lookup)
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn logspace_start_end() {
+        let v = logspace(10, 100.0, 2.0);
+        assert_eq!(v.len(), 10);
+        assert_eq!(*v.first().unwrap(), 0.0);
+        assert_eq!(*v.last().unwrap(), 100.0);
+        println!("{:?}", v);
     }
 }
