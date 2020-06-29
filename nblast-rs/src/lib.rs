@@ -870,7 +870,7 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     use super::*;
 
     const EPSILON: Precision = 0.001;
