@@ -48,14 +48,14 @@ impl error::Error for OutOfBins {
 
 #[derive(Debug, PartialEq)]
 pub enum IllegalBinBoundaries {
-    NotMonotonic,
+    NotAscending,
     NotEnough,
 }
 
 impl fmt::Display for IllegalBinBoundaries {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::NotMonotonic => write!(f, "Bin boundary order is not monotonic"),
+            Self::NotAscending => write!(f, "Bin boundary order is not ascending"),
             Self::NotEnough => write!(f, "Bin boundaries must have >= 2 values"),
         }
     }
@@ -67,15 +67,18 @@ impl error::Error for IllegalBinBoundaries {
     }
 }
 
-fn is_monotonic<T: PartialOrd>(values: &[T]) -> bool {
+fn is_monotonic_ascending<T: PartialOrd>(values: &[T]) -> bool {
     let all_cmps: Vec<_> = values.windows(2).map(|w| w[0].partial_cmp(&w[1])).collect();
+    // window implementation useful for direction-independent monotonicity check
     for cmps in all_cmps.windows(2) {
         if let Some(a) = cmps[0] {
             if let Some(b) = cmps[1] {
-                if a == Ordering::Equal || a != b {
+                if a == Ordering::Greater || a != b {
                     return false;
                 }
             }
+        } else {
+            return false;
         }
     }
     true
@@ -88,14 +91,14 @@ pub struct BinLookup<T: PartialOrd + Clone + Debug> {
     pub n_bins: usize,
 }
 
-/// `bin_boundaries` must be sorted and have length > 2
+/// `bin_boundaries` must be sorted ascending and have length > 2
 impl<T: PartialOrd + Copy + Debug> BinLookup<T> {
     pub fn new(bin_boundaries: Vec<T>, snap: (bool, bool)) -> Result<Self, IllegalBinBoundaries> {
         if bin_boundaries.len() < 2 {
             return Err(IllegalBinBoundaries::NotEnough);
         }
-        if !is_monotonic(&bin_boundaries) {
-            return Err(IllegalBinBoundaries::NotMonotonic);
+        if !is_monotonic_ascending(&bin_boundaries) {
+            return Err(IllegalBinBoundaries::NotAscending);
         }
         let n_bins = bin_boundaries.len() - 1;
 
@@ -107,12 +110,14 @@ impl<T: PartialOrd + Copy + Debug> BinLookup<T> {
     }
 
     pub fn to_idx(&self, val: &T) -> Result<usize, OutOfBin> {
+        // this implementation could be much simpler
+        // if it will only ever need to support ascending sorts,
+        // which is already all it supports anyway
         match self
             .bin_boundaries
             .binary_search_by(|bound| bound.partial_cmp(&val).unwrap())
         {
             Ok(idx) => {
-                println!("{:?} on boundary {:?}", val, idx);
                 // exactly on boundary
                 if idx >= self.n_bins {
                     if self.snap.1 {
@@ -125,7 +130,6 @@ impl<T: PartialOrd + Copy + Debug> BinLookup<T> {
                 }
             },
             Err(idx) => {
-                println!("{:?} would fit at position {:?}", val, idx);
                 if idx == 0 {
                     if self.snap.0 {
                         Ok(0)
@@ -215,6 +219,18 @@ impl<I: PartialOrd + Copy + Debug, T> RangeTable<I, T> {
         }
     }
 
+    pub fn new_from_bins(bins: Vec<Vec<I>>, cells: Vec<T>) -> Result<Self, ()> {
+        let mut lookups = Vec::with_capacity(bins.len());
+        for b in bins {
+            match BinLookup::new(b, (true, true)) {
+                Ok(lookup) => lookups.push(lookup),
+                _ => return Err(()),
+            }
+        }
+
+        Self::new(NdBinLookup::new(lookups), cells)
+    }
+
     pub fn lookup(&self, vals: &[I]) -> &T {
         let idx = self.bins_lookup.to_linear_idx(vals).expect("Out of bounds");
         self.cells.get(idx).unwrap()
@@ -225,6 +241,8 @@ impl<I: PartialOrd + Copy + Debug, T> RangeTable<I, T> {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    type Precision = f64;
 
     #[test]
     fn inner_lookup() {
@@ -277,5 +295,80 @@ mod test {
         assert_eq!(bins.to_idx(&2.5), Ok(1));
         assert_eq!(bins.to_idx(&3.1), Ok(1));
         assert_eq!(bins.to_idx(&3.1), Ok(1));
+    }
+
+    #[test]
+    fn non_monotonic() {
+        assert!(BinLookup::new(vec![1.0, 3.0, 2.0], (true, true)).is_err());
+    }
+
+    #[test]
+    fn insufficient_bounds() {
+        assert!(BinLookup::new(vec![1.0], (true, true)).is_err());
+    }
+
+    // #[test]
+    // fn rev_sort() {
+    //     let bins = BinLookup::new(vec![3.0, 2.0, 1.0], (true, true)).unwrap();
+    //     assert_eq!(bins.to_idx(&3.1), Ok(0));
+    //     assert_eq!(bins.to_idx(&3.0), Ok(0));
+    //     assert_eq!(bins.to_idx(&2.5), Ok(0));
+    //     assert_eq!(bins.to_idx(&2.0), Ok(1));
+    //     assert_eq!(bins.to_idx(&1.5), Ok(1));
+    //     assert_eq!(bins.to_idx(&1.0), Ok(1));
+    //     assert_eq!(bins.to_idx(&0.9), Ok(1));
+    // }
+
+    fn assert_2d_bins(bins: &NdBinLookup<Precision>, vals: &[Precision], expected: &[usize]) {
+        if let Ok(idxs) = bins.to_idxs(vals) {
+            assert_eq!(idxs.len(), 2);
+            assert_eq!(idxs[0], expected[0]);
+            assert_eq!(idxs[1], expected[1]);
+        } else {
+            panic!("Got error result");
+        }
+    }
+
+    #[test]
+    fn nd() {
+        let bins = NdBinLookup::new(
+            vec![
+                BinLookup::new(vec![0.0, 0.25, 0.5, 0.75, 1.0], (true, true)).unwrap(),
+                BinLookup::new(vec![0.0, 10.0, 100.0, 1000.0], (true, true)).unwrap(),
+            ]
+        );
+        assert_eq!(bins.n_cells, 12);
+        assert_2d_bins(&bins, &[0.0, 0.0], &[0, 0]);
+        assert_2d_bins(&bins, &[0.3, 150.0], &[1, 2]);
+        assert_2d_bins(&bins, &[1.1, 1001.0], &[3, 2]);
+    }
+
+    #[test]
+    fn nd_linear() {
+        let bins = NdBinLookup::new(
+            vec![
+                BinLookup::new(vec![0.0, 0.25, 0.5, 0.75, 1.0], (true, true)).unwrap(),
+                BinLookup::new(vec![0.0, 10.0, 100.0, 1000.0], (true, true)).unwrap(),
+            ]
+        );
+
+        assert_eq!(bins.to_linear_idx(&[0.0, 0.0]), Ok(0));
+        assert_eq!(bins.to_linear_idx(&[0.3, 150.0]), Ok(5));
+        assert_eq!(bins.to_linear_idx(&[1.1, 1001.0]), Ok(11));
+    }
+
+    #[test]
+    fn range_table() {
+        let table = RangeTable::new_from_bins(
+            vec![
+                vec![0.0, 0.25, 0.5, 0.75, 1.0],
+                vec![0.0, 10.0, 100.0, 1000.0],
+            ],
+            (0..12).map(|x| x as Precision).collect()
+        ).unwrap();
+
+        assert!((table.lookup(&[0.0, 0.0]) - 0.0).abs() < Precision::EPSILON);
+        assert!((table.lookup(&[0.3, 150.0]) - 5.0).abs() < Precision::EPSILON);
+        assert!((table.lookup(&[1.1, 1001.0]) - 11.0).abs() < Precision::EPSILON);
     }
 }
