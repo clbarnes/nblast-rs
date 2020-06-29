@@ -51,22 +51,13 @@ impl error::Error for ScoreMatBuildErr {
     }
 }
 
-/// Generate `count` logarithmically-spaced values from 0 up to (and including) `max`,
-/// using the given `base`.
-/// Make sure to use a large enough `count` (needs to be larger for smaller bases),
-/// otherwise there will be a large jump between 0 and the first value.
-fn logspace(count: usize, max: Precision, base: Precision) -> Vec<Precision> {
+/// Generate `count` logarithmically-spaced values from `base^min_exp` up to (and including) `base^max_exp`
+fn logspace(base: Precision, min_exp: Precision, max_exp: Precision, count: usize) -> Vec<Precision> {
     // TODO: do this better
     assert!(count > 2);
-    assert!(base > 1.0);
-    let mut v = vec![max];
-    while v.len() < count - 1 {
-        let new_val = v.last().unwrap() / base;
-        v.push(new_val);
-    }
-    v.push(0.0);
-    v.reverse();
-    v
+    let step = (max_exp - min_exp) / (count - 1) as Precision;
+
+    (0..count).map(|idx| base.powf(min_exp + idx as Precision * step)).collect()
 }
 
 /// Calculate a score matrix (lookup table for converting point matches
@@ -154,14 +145,15 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
     }
 
     /// Automatically generate distance bins by logarithmically interpolating
-    /// between 0 and `greatest_lower_bound`, using a logarithm of the given `base`.
+    /// between `base^min_exp` (which should be small) and `base^max_exp`.
     pub fn set_n_dist_bins(
         &mut self,
         n_bins: usize,
-        greatest_lower_bound: Precision,
         base: Precision,
+        min_exp: Precision,
+        max_exp: Precision,
     ) -> &mut Self {
-        let mut v = logspace(n_bins, greatest_lower_bound, base);
+        let mut v = logspace(base, min_exp, max_exp, n_bins);
         v.push(1.0 / 0.0);
         self.set_dist_bins(v)
     }
@@ -180,10 +172,10 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
 
     /// Automatically generate abs dot product bins by linearly interpolating between
     /// 0 and 1.
-    pub fn set_n_dot_bins(&mut self, n_dot_bins: usize) -> &mut Self {
-        let step = 1.0 / (n_dot_bins + 1) as Precision;
+    pub fn set_n_dot_bins(&mut self, n_bins: usize) -> &mut Self {
+        let step = 1.0 / (n_bins + 1) as Precision;
         self.set_dot_bins(
-            (0..(n_dot_bins + 1))
+            (0..(n_bins + 1))
                 .map(|n| step * n as Precision)
                 .collect(),
         )
@@ -338,6 +330,7 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
                 .num_threads(t)
                 .build()
                 .unwrap();
+
             pool.install(|| {
                 let (sender, receiver) = channel();
 
@@ -364,12 +357,32 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
 mod test {
     use super::*;
 
+    fn assert_slice_eq(test: &[Precision], reference: &[Precision]) {
+        let msg = format!("\ttest: {:?}\n\t ref: {:?}", test, reference);
+        if test.len() != reference.len() {
+            panic!("Slices have different length\n{}", msg);
+        }
+
+        for (test_val, ref_val) in test.iter().zip(reference.iter()) {
+            if (test_val - ref_val).abs() > Precision::EPSILON {
+                panic!("Slices mave mismatched values\n{}", msg)
+            }
+        }
+    }
+
     #[test]
-    fn logspace_start_end() {
-        let v = logspace(10, 100.0, 2.0);
-        assert_eq!(v.len(), 10);
-        assert_eq!(*v.first().unwrap(), 0.0);
-        assert_eq!(*v.last().unwrap(), 100.0);
-        println!("{:?}", v);
+    fn test_logspace() {
+        let base: Precision = 10.0;
+        let count: usize = 5;
+        assert_slice_eq(
+            &logspace(base, 1.0, 5.0, count),
+            &[
+                (10f64).powf(1.0),
+                (10f64).powf(2.0),
+                (10f64).powf(3.0),
+                (10f64).powf(4.0),
+                (10f64).powf(5.0),
+            ],
+        );
     }
 }
