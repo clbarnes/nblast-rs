@@ -205,6 +205,7 @@ impl<T: PartialOrd + Copy + Debug> NdBinLookup<T> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct RangeTable<I: PartialOrd + Clone + Debug, T> {
     pub bins_lookup: NdBinLookup<I>,
     pub cells: Vec<T>,
