@@ -618,6 +618,10 @@ pub fn table_to_fn(
     move |dd: &DistDot| -> Precision { cells[dd.to_linear_idx(&dist_thresholds, &dot_thresholds)] }
 }
 
+pub fn range_table_to_fn(range_table: RangeTable<Precision, Precision>) -> impl Fn(&DistDot) -> Precision {
+    move |dd: &DistDot| -> Precision { *range_table.lookup(&[dd.dist, dd.dot]) }
+}
+
 #[derive(Clone)]
 struct NeuronSelfHit<N: QueryNeuron> {
     neuron: N,
