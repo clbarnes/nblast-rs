@@ -128,7 +128,7 @@ impl<T: PartialOrd + Copy + Debug> BinLookup<T> {
                 } else {
                     Ok(idx)
                 }
-            },
+            }
             Err(idx) => {
                 if idx == 0 {
                     if self.snap.0 {
@@ -238,7 +238,6 @@ impl<I: PartialOrd + Copy + Debug, T> RangeTable<I, T> {
     }
 }
 
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -332,12 +331,10 @@ mod test {
 
     #[test]
     fn nd() {
-        let bins = NdBinLookup::new(
-            vec![
-                BinLookup::new(vec![0.0, 0.25, 0.5, 0.75, 1.0], (true, true)).unwrap(),
-                BinLookup::new(vec![0.0, 10.0, 100.0, 1000.0], (true, true)).unwrap(),
-            ]
-        );
+        let bins = NdBinLookup::new(vec![
+            BinLookup::new(vec![0.0, 0.25, 0.5, 0.75, 1.0], (true, true)).unwrap(),
+            BinLookup::new(vec![0.0, 10.0, 100.0, 1000.0], (true, true)).unwrap(),
+        ]);
         assert_eq!(bins.n_cells, 12);
         assert_2d_bins(&bins, &[0.0, 0.0], &[0, 0]);
         assert_2d_bins(&bins, &[0.3, 150.0], &[1, 2]);
@@ -346,12 +343,10 @@ mod test {
 
     #[test]
     fn nd_linear() {
-        let bins = NdBinLookup::new(
-            vec![
-                BinLookup::new(vec![0.0, 0.25, 0.5, 0.75, 1.0], (true, true)).unwrap(),
-                BinLookup::new(vec![0.0, 10.0, 100.0, 1000.0], (true, true)).unwrap(),
-            ]
-        );
+        let bins = NdBinLookup::new(vec![
+            BinLookup::new(vec![0.0, 0.25, 0.5, 0.75, 1.0], (true, true)).unwrap(),
+            BinLookup::new(vec![0.0, 10.0, 100.0, 1000.0], (true, true)).unwrap(),
+        ]);
 
         assert_eq!(bins.to_linear_idx(&[0.0, 0.0]), Ok(0));
         assert_eq!(bins.to_linear_idx(&[0.3, 150.0]), Ok(5));
@@ -365,8 +360,9 @@ mod test {
                 vec![0.0, 0.25, 0.5, 0.75, 1.0],
                 vec![0.0, 10.0, 100.0, 1000.0],
             ],
-            (0..12).map(|x| x as Precision).collect()
-        ).unwrap();
+            (0..12).map(|x| x as Precision).collect(),
+        )
+        .unwrap();
 
         assert!((table.lookup(&[0.0, 0.0]) - 0.0).abs() < Precision::EPSILON);
         assert!((table.lookup(&[0.3, 150.0]) - 5.0).abs() < Precision::EPSILON);

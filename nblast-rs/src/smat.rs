@@ -35,7 +35,6 @@ const EPSILON: Precision = 1e-6;
 
 type JobSet = HashSet<(usize, usize)>;
 
-
 #[derive(Debug)]
 pub struct ScoreMatBuildErr {}
 
@@ -52,12 +51,19 @@ impl error::Error for ScoreMatBuildErr {
 }
 
 /// Generate `count` logarithmically-spaced values from `base^min_exp` up to (and including) `base^max_exp`
-fn logspace(base: Precision, min_exp: Precision, max_exp: Precision, count: usize) -> Vec<Precision> {
+fn logspace(
+    base: Precision,
+    min_exp: Precision,
+    max_exp: Precision,
+    count: usize,
+) -> Vec<Precision> {
     // TODO: do this better
     assert!(count > 2);
     let step = (max_exp - min_exp) / (count - 1) as Precision;
 
-    (0..count).map(|idx| base.powf(min_exp + idx as Precision * step)).collect()
+    (0..count)
+        .map(|idx| base.powf(min_exp + idx as Precision * step))
+        .collect()
 }
 
 /// Calculate a score matrix (lookup table for converting point matches
@@ -166,7 +172,8 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
     /// absolute dot products between them are between 0 and 1
     /// (although float precision means values slightly above 1 are possible).
     pub fn set_dot_bins<'a>(&'a mut self, dot_bin_boundaries: Vec<Precision>) -> &'a mut Self {
-        self.dot_bin_lookup = Some(BinLookup::new(dot_bin_boundaries, (true, true)).expect("Illegal bins"));
+        self.dot_bin_lookup =
+            Some(BinLookup::new(dot_bin_boundaries, (true, true)).expect("Illegal bins"));
         self
     }
 
@@ -174,11 +181,7 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
     /// 0 and 1.
     pub fn set_n_dot_bins(&mut self, n_bins: usize) -> &mut Self {
         let step = 1.0 / (n_bins + 1) as Precision;
-        self.set_dot_bins(
-            (0..(n_bins + 1))
-                .map(|n| step * n as Precision)
-                .collect(),
-        )
+        self.set_dot_bins((0..(n_bins + 1)).map(|n| step * n as Precision).collect())
     }
 
     /// Return a tuple of `(dist_bins, dot_bins, cells)` in the forms accepted by
@@ -215,7 +218,10 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
             })
             .collect();
 
-        Ok(RangeTable { bins_lookup: dist_dot_lookup, cells })
+        Ok(RangeTable {
+            bins_lookup: dist_dot_lookup,
+            cells,
+        })
     }
 
     /// Generate the "jobs" for matching and nonmatching neuron queries.
@@ -252,9 +258,10 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
         }
 
         // if nonmatching not given, use all neurons
-        let nonmatching_idxs = self.nonmatching
+        let nonmatching_idxs = self
+            .nonmatching
             .as_ref()
-            .cloned()  // ? is this avoidable
+            .cloned() // ? is this avoidable
             .or_else(|| Some((0..self.neurons.len()).collect()))
             .unwrap();
 
@@ -340,7 +347,8 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
                     .map(|dd| dist_dot_lookup.to_linear_idx(&[dd.dist, dd.dot]).unwrap())
                     .for_each_with(sender, |s, x| s.send(x).unwrap());
 
-                let mut counts: Vec<usize> = iter::repeat(0).take(dist_dot_lookup.n_cells).collect();
+                let mut counts: Vec<usize> =
+                    iter::repeat(0).take(dist_dot_lookup.n_cells).collect();
 
                 for idx in receiver.iter() {
                     counts[idx] += 1;
