@@ -229,12 +229,12 @@ pub trait QueryNeuron: Neuron {
         &self,
         target: &impl TargetNeuron,
         use_alpha: bool,
-        score_fn: &impl Fn(&DistDot) -> Precision,
+        score_calc: &ScoreCalc,
     ) -> Precision;
 
     /// The raw NBLAST score if this neuron was compared with itself using the given score function.
     /// Used for normalisation.
-    fn self_hit(&self, score_fn: &impl Fn(&DistDot) -> Precision, use_alpha: bool) -> Precision;
+    fn self_hit(&self, score_calc: &ScoreCalc, use_alpha: bool) -> Precision;
 }
 
 fn subtract_points(p1: &Point3, p2: &Point3) -> Point3 {
@@ -387,30 +387,30 @@ impl QueryNeuron for PointsTangentsAlphas {
         &self,
         target: &impl TargetNeuron,
         use_alpha: bool,
-        score_fn: &impl Fn(&DistDot) -> Precision,
+        score_calc: &ScoreCalc,
     ) -> Precision {
         let mut score_total: Precision = 0.0;
 
         for (q_pt, q_ta) in self.points.iter().zip(self.tangents_alphas.iter()) {
             let alpha = if use_alpha { Some(q_ta.alpha) } else { None };
-            score_total += score_fn(&target.nearest_match_dist_dot(q_pt, &q_ta.tangent, alpha));
+            score_total += score_calc.calc(&target.nearest_match_dist_dot(q_pt, &q_ta.tangent, alpha));
         }
         score_total
     }
 
-    fn self_hit(&self, score_fn: &impl Fn(&DistDot) -> Precision, use_alpha: bool) -> Precision {
+    fn self_hit(&self, score_calc: &ScoreCalc, use_alpha: bool) -> Precision {
         if use_alpha {
             self.tangents_alphas
                 .iter()
                 .map(|ta| {
-                    score_fn(&DistDot {
+                    score_calc.calc(&DistDot {
                         dist: 0.0,
                         dot: ta.alpha,
                     })
                 })
                 .fold(0.0, |total, s| total + s)
         } else {
-            score_fn(&DistDot {
+            score_calc.calc(&DistDot {
                 dist: 0.0,
                 dot: 1.0,
             }) * self.len() as Precision
@@ -512,7 +512,7 @@ impl QueryNeuron for RStarTangentsAlphas {
         &self,
         target: &impl TargetNeuron,
         use_alpha: bool,
-        score_fn: &impl Fn(&DistDot) -> Precision,
+        score_calc: &ScoreCalc,
     ) -> Precision {
         let mut score_total: Precision = 0.0;
         for q_pt_idx in self.rtree.iter() {
@@ -524,25 +524,25 @@ impl QueryNeuron for RStarTangentsAlphas {
             };
             let dd =
                 target.nearest_match_dist_dot(q_pt_idx.position(), &tangent_alpha.tangent, alpha);
-            let score = score_fn(&dd);
+            let score = score_calc.calc(&dd);
             score_total += score;
         }
         score_total
     }
 
-    fn self_hit(&self, score_fn: &impl Fn(&DistDot) -> Precision, use_alpha: bool) -> Precision {
+    fn self_hit(&self, score_calc: &ScoreCalc, use_alpha: bool) -> Precision {
         if use_alpha {
             self.tangents_alphas
                 .iter()
                 .map(|ta| {
-                    score_fn(&DistDot {
+                    score_calc.calc(&DistDot {
                         dist: 0.0,
                         dot: ta.alpha,
                     })
                 })
                 .fold(0.0, |total, s| total + s)
         } else {
-            score_fn(&DistDot {
+            score_calc.calc(&DistDot {
                 dist: 0.0,
                 dot: 1.0,
             }) * self.len() as Precision
@@ -641,28 +641,37 @@ impl<N: QueryNeuron> NeuronSelfHit<N> {
     }
 }
 
+pub enum ScoreCalc {
+    Func(Box<dyn Fn(&DistDot) -> Precision + Sync>),
+    Table(RangeTable<Precision, Precision>),
+}
+
+impl ScoreCalc {
+    pub fn calc(&self, dist_dot: &DistDot) -> Precision {
+        match self {
+            Self::Func(func) => func(dist_dot),
+            Self::Table(tab) => *tab.lookup(&[dist_dot.dist, dist_dot.dot]),
+        }
+    }
+}
+
 /// Struct for caching a number of neurons for multiple comparable NBLAST queries.
-#[derive(Clone)]
-pub struct NblastArena<N, F>
-where
-    N: TargetNeuron,
-    F: Fn(&DistDot) -> Precision,
+pub struct NblastArena<N> where
+N: TargetNeuron,
 {
     neurons_scores: Vec<NeuronSelfHit<N>>,
-    score_fn: F,
+    score_calc: ScoreCalc,
 }
 
 pub type NeuronIdx = usize;
 
-impl<N, F> NblastArena<N, F>
-where
-    N: TargetNeuron + Sync,
-    F: Fn(&DistDot) -> Precision + Sync,
+impl<N> NblastArena<N>
+where N: TargetNeuron + Sync
 {
-    pub fn new(score_fn: F) -> Self {
+    pub fn new(score_calc: ScoreCalc) -> Self {
         Self {
             neurons_scores: Vec::default(),
-            score_fn,
+            score_calc,
         }
     }
 
@@ -673,8 +682,8 @@ where
     /// Returns an index which is then used to make queries.
     pub fn add_neuron(&mut self, neuron: N) -> NeuronIdx {
         let idx = self.next_id();
-        let self_hit = neuron.self_hit(&self.score_fn, false);
-        let self_hit_alpha = neuron.self_hit(&self.score_fn, true);
+        let self_hit = neuron.self_hit(&self.score_calc, false);
+        let self_hit_alpha = neuron.self_hit(&self.score_calc, true);
         self.neurons_scores.push(NeuronSelfHit {
             neuron,
             self_hit,
@@ -699,13 +708,13 @@ where
         // ? consider separate methods
         let q = self.neurons_scores.get(query_idx)?;
         let t = self.neurons_scores.get(target_idx)?;
-        let mut score = q.neuron.query(&t.neuron, use_alpha, &self.score_fn);
+        let mut score = q.neuron.query(&t.neuron, use_alpha, &self.score_calc);
         if normalize {
             score /= q.score(use_alpha)
         }
         match symmetry {
             Some(s) => {
-                let mut score2 = t.neuron.query(&q.neuron, use_alpha, &self.score_fn);
+                let mut score2 = t.neuron.query(&q.neuron, use_alpha, &self.score_calc);
                 if normalize {
                     score2 /= t.score(use_alpha);
                 }
@@ -808,16 +817,12 @@ where
     }
 }
 
-fn pairs_to_raw_serial<N, F>(
-    arena: &NblastArena<N, F>,
+fn pairs_to_raw_serial<N: TargetNeuron + Sync>(
+    arena: &NblastArena<N>,
     pairs: &[(NeuronIdx, NeuronIdx)],
     normalize: bool,
     use_alpha: bool,
-) -> HashMap<(NeuronIdx, NeuronIdx), Precision>
-where
-    N: TargetNeuron + Sync,
-    F: Fn(&DistDot) -> Precision + Sync,
-{
+) -> HashMap<(NeuronIdx, NeuronIdx), Precision> {
     pairs
         .iter()
         .filter_map(|(q_idx, t_idx)| {
@@ -844,17 +849,13 @@ where
 }
 
 #[cfg(feature = "parallel")]
-fn pairs_to_raw<N, F>(
-    arena: &NblastArena<N, F>,
+fn pairs_to_raw<N: TargetNeuron + Sync>(
+    arena: &NblastArena<N>,
     pairs: &[(NeuronIdx, NeuronIdx)],
     normalize: bool,
     use_alpha: bool,
     threads: Option<usize>,
-) -> HashMap<(NeuronIdx, NeuronIdx), Precision>
-where
-    N: TargetNeuron + Sync,
-    F: Fn(&DistDot) -> Precision + Sync,
-{
+) -> HashMap<(NeuronIdx, NeuronIdx), Precision> {
     if let Some(t) = threads {
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(t)
@@ -1009,7 +1010,7 @@ mod test {
     }
 
     #[test]
-    fn test_score_fn() {
+    fn test_score_calc() {
         let (dists, dots, values) = score_mat();
         let func = table_to_fn(dists, dots, values);
         assert_close(
@@ -1073,7 +1074,7 @@ mod test {
         let dot_thresholds = vec![0.5, 1.0];
         let cells = vec![1.0, 2.0, 4.0, 8.0];
 
-        let score_fn = table_to_fn(dist_thresholds, dot_thresholds, cells);
+        let score_calc = ScoreCalc::Func(Box::new(table_to_fn(dist_thresholds, dot_thresholds, cells)));
 
         let q_points = make_points(&[0., 0., 0.], &[1.0, 0.0, 0.0], 10);
         let query = PointsTangentsAlphas::new(q_points.clone(), N_NEIGHBORS)
@@ -1086,29 +1087,30 @@ mod test {
         .expect("Construction failed");
 
         assert_close(
-            query.query(&target, false, &score_fn),
-            query2.query(&target, false, &score_fn),
+            query.query(&target, false, &score_calc),
+            query2.query(&target, false, &score_calc),
         );
         assert_close(
-            query.self_hit(&score_fn, false),
-            query2.self_hit(&score_fn, false),
+            query.self_hit(&score_calc, false),
+            query2.self_hit(&score_calc, false),
         );
-        let score = query.query(&query2, false, &score_fn);
-        let self_hit = query.self_hit(&score_fn, false);
+        let score = query.query(&query2, false, &score_calc);
+        let self_hit = query.self_hit(&score_calc, false);
         println!("score: {:?}, self-hit {:?}", score, self_hit);
         assert_close(
-            query.query(&query2, false, &score_fn),
-            query.self_hit(&score_fn, false),
+            query.query(&query2, false, &score_calc),
+            query.self_hit(&score_calc, false),
         );
     }
 
     #[test]
     fn arena() {
-        let dist_thresholds = vec![1.0, 2.0];
-        let dot_thresholds = vec![0.5, 1.0];
+        let dist_thresholds = vec![0.0, 1.0, 2.0];
+        let dot_thresholds = vec![0.0, 0.5, 1.0];
         let cells = vec![1.0, 2.0, 4.0, 8.0];
 
-        let score_fn = table_to_fn(dist_thresholds, dot_thresholds, cells);
+        // let score_calc = ScoreCalc::Func(Box::new(table_to_fn(dist_thresholds, dot_thresholds, cells)));
+        let score_calc = ScoreCalc::Table(RangeTable::new_from_bins(vec![dist_thresholds, dot_thresholds], cells).unwrap());
 
         let query =
             RStarTangentsAlphas::new(&make_points(&[0., 0., 0.], &[1., 0., 0.], 10), N_NEIGHBORS)
@@ -1119,7 +1121,7 @@ mod test {
         )
         .expect("Construction failed");
 
-        let mut arena = NblastArena::new(score_fn);
+        let mut arena = NblastArena::new(score_calc);
         let q_idx = arena.add_neuron(query);
         let t_idx = arena.add_neuron(target);
 
@@ -1189,14 +1191,14 @@ mod test {
     fn alpha_changes_results() {
         let (points, _, _) = tangent_data();
         let neuron = RStarTangentsAlphas::new(points, N_NEIGHBORS).unwrap();
-        let score_fn = |dd: &DistDot| dd.dot;
+        let score_calc = ScoreCalc::Func(Box::new(|dd: &DistDot| dd.dot));
 
-        let sh = neuron.self_hit(&score_fn, false);
-        let sh_a = neuron.self_hit(&score_fn, true);
+        let sh = neuron.self_hit(&score_calc, false);
+        let sh_a = neuron.self_hit(&score_calc, true);
         assert!(!is_close(sh, sh_a));
 
-        let q = neuron.query(&neuron, false, &score_fn);
-        let q_a = neuron.query(&neuron, true, &score_fn);
+        let q = neuron.query(&neuron, false, &score_calc);
+        let q_a = neuron.query(&neuron, true, &score_calc);
 
         assert!(!is_close(q, q_a));
     }
