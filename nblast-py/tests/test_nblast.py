@@ -15,7 +15,7 @@ EPSILON = 0.001
 
 def test_read_smat(smat_path):
     dist_bins, dot_bins, arr = ScoreMatrix.read(smat_path)
-    assert arr.shape == (len(dist_bins), len(dot_bins))
+    assert arr.shape == (len(dist_bins) - 1, len(dot_bins) - 1)
     df = pd.read_csv(smat_path, index_col=0, header=0)
     assert np.allclose(arr, df.to_numpy())
 

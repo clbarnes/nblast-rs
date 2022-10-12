@@ -48,9 +48,9 @@ source_suffix = ".rst"
 master_doc = "index"
 
 # General information about the project.
-project = u"nblast-rs"
-copyright = u"2020, Chris L. Barnes"
-author = u"Chris L. Barnes"
+project = "nblast-rs"
+copyright = "2020, Chris L. Barnes"
+author = "Chris L. Barnes"
 
 # The version info for the project you're documenting, acts as replacement
 # for |version| and |release|, also used in various other places throughout
@@ -129,8 +129,8 @@ latex_documents = [
     (
         master_doc,
         "nblast.tex",
-        u"nblast-rs Documentation",
-        u"Chris L. Barnes",
+        "nblast-rs Documentation",
+        "Chris L. Barnes",
         "manual",
     ),
 ]
@@ -140,7 +140,7 @@ latex_documents = [
 
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
-man_pages = [(master_doc, "nblast", u"nblast-rs Documentation", [author], 1)]
+man_pages = [(master_doc, "nblast", "nblast-rs Documentation", [author], 1)]
 
 
 # -- Options for Texinfo output ----------------------------------------
@@ -152,7 +152,7 @@ texinfo_documents = [
     (
         master_doc,
         "nblast",
-        u"nblast-rs Documentation",
+        "nblast-rs Documentation",
         author,
         "nblast",
         "One line description of project.",

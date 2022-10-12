@@ -4,15 +4,22 @@ import csv
 import numpy as np
 
 
-def parse_interval(s):
+def parse_interval(s) -> tuple[float, float]:
     no_brackets = s.strip("([]) ")
-    if not no_brackets:
-        return None
-    low_high = no_brackets.split(",")
-    if len(low_high) == 1:
-        return float(low_high)
-    else:
-        return float(low_high[-1])
+    # if not no_brackets:
+    #     return None
+    low, high = (float(i) for i in no_brackets.split(","))
+    return (low, high)
+
+
+def intervals_to_bins(intervals: list[tuple[float, float]]):
+    it = iter(intervals)
+    out = list(next(it))
+    for lower, upper in it:
+        if lower != out[-1]:
+            raise ValueError("Bins are not abutting")
+        out.append(upper)
+    return out
 
 
 class ScoreMatrix(NamedTuple):
@@ -42,18 +49,20 @@ class ScoreMatrix(NamedTuple):
         """
         with open(fpath) as f:
             reader = csv.reader(f, **csv_kwargs)
-            dot_bins = [parse_interval(s) for s in next(reader)[1:]]
 
-            dist_bins = []
+            dot_bins = intervals_to_bins([parse_interval(s) for s in next(reader)[1:]])
+            intervals = []
             data = []
             for idx, row in enumerate(reader, 1):
-                dist_bins.append(parse_interval(row[0]))
+                intervals.append(parse_interval(row[0]))
                 row_data = [float(s) for s in row[1:]]
-                if len(row_data) != len(dot_bins):
+                if len(row_data) != len(dot_bins) - 1:
                     raise ValueError(
                         f"Line {idx} has {len(row_data)} values; "
                         f"expected {len(dot_bins)}"
                     )
                 data.append(row_data)
+
+        dist_bins = intervals_to_bins(intervals)
 
         return cls(dist_bins, dot_bins, np.array(data))

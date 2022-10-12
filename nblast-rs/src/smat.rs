@@ -145,7 +145,7 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
     /// Manually set the bounds of the distance bins.
     /// The first and last bounds are effectively ignored,
     /// as values outside that range are snapped to the bottom and top bins.
-    pub fn set_dist_bins<'a>(&'a mut self, bins: Vec<Precision>) -> &mut Self {
+    pub fn set_dist_bins(&mut self, bins: Vec<Precision>) -> &mut Self {
         self.dist_bin_lookup = Some(BinLookup::new(bins, (true, true)).expect("Illegal bins"));
         self
     }
@@ -171,7 +171,7 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
     /// Because the tangent vectors are unit-length,
     /// absolute dot products between them are between 0 and 1
     /// (although float precision means values slightly above 1 are possible).
-    pub fn set_dot_bins<'a>(&'a mut self, dot_bin_boundaries: Vec<Precision>) -> &'a mut Self {
+    pub fn set_dot_bins(&mut self, dot_bin_boundaries: Vec<Precision>) -> &mut Self {
         self.dot_bin_lookup =
             Some(BinLookup::new(dot_bin_boundaries, (true, true)).expect("Illegal bins"));
         self

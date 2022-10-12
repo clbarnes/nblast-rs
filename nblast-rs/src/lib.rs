@@ -164,7 +164,7 @@ pub struct DistDot {
 
 impl DistDot {
     fn to_idxs(
-        &self,
+        self,
         dist_thresholds: &[Precision],
         dot_thresholds: &[Precision],
     ) -> (usize, usize) {
@@ -173,7 +173,7 @@ impl DistDot {
         (dist_bin, dot_bin)
     }
 
-    fn to_linear_idx(&self, dist_thresholds: &[Precision], dot_thresholds: &[Precision]) -> usize {
+    fn to_linear_idx(self, dist_thresholds: &[Precision], dot_thresholds: &[Precision]) -> usize {
         let (row_idx, col_idx) = self.to_idxs(dist_thresholds, dot_thresholds);
         row_idx * dot_thresholds.len() + col_idx
     }
@@ -393,7 +393,8 @@ impl QueryNeuron for PointsTangentsAlphas {
 
         for (q_pt, q_ta) in self.points.iter().zip(self.tangents_alphas.iter()) {
             let alpha = if use_alpha { Some(q_ta.alpha) } else { None };
-            score_total += score_calc.calc(&target.nearest_match_dist_dot(q_pt, &q_ta.tangent, alpha));
+            score_total +=
+                score_calc.calc(&target.nearest_match_dist_dot(q_pt, &q_ta.tangent, alpha));
         }
         score_total
     }
@@ -656,8 +657,9 @@ impl ScoreCalc {
 }
 
 /// Struct for caching a number of neurons for multiple comparable NBLAST queries.
-pub struct NblastArena<N> where
-N: TargetNeuron,
+pub struct NblastArena<N>
+where
+    N: TargetNeuron,
 {
     neurons_scores: Vec<NeuronSelfHit<N>>,
     score_calc: ScoreCalc,
@@ -666,7 +668,8 @@ N: TargetNeuron,
 pub type NeuronIdx = usize;
 
 impl<N> NblastArena<N>
-where N: TargetNeuron + Sync
+where
+    N: TargetNeuron + Sync,
 {
     pub fn new(score_calc: ScoreCalc) -> Self {
         Self {
@@ -1110,7 +1113,9 @@ mod test {
         let cells = vec![1.0, 2.0, 4.0, 8.0];
 
         // let score_calc = ScoreCalc::Func(Box::new(table_to_fn(dist_thresholds, dot_thresholds, cells)));
-        let score_calc = ScoreCalc::Table(RangeTable::new_from_bins(vec![dist_thresholds, dot_thresholds], cells).unwrap());
+        let score_calc = ScoreCalc::Table(
+            RangeTable::new_from_bins(vec![dist_thresholds, dot_thresholds], cells).unwrap(),
+        );
 
         let query =
             RStarTangentsAlphas::new(&make_points(&[0., 0., 0.], &[1., 0., 0.], 10), N_NEIGHBORS)

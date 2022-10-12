@@ -6,7 +6,7 @@ use std::fmt::Debug;
 
 use thiserror::Error;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum OutOfBin {
     Before,
     After(usize),
@@ -27,7 +27,7 @@ impl error::Error for OutOfBin {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct OutOfBins {
     outside: HashMap<usize, OutOfBin>,
 }
@@ -48,7 +48,7 @@ impl error::Error for OutOfBins {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum IllegalBinBoundaries {
     NotAscending,
     NotEnough,
@@ -117,7 +117,7 @@ impl<T: PartialOrd + Copy + Debug> BinLookup<T> {
         // which is already all it supports anyway
         match self
             .bin_boundaries
-            .binary_search_by(|bound| bound.partial_cmp(&val).expect("Could not compare"))
+            .binary_search_by(|bound| bound.partial_cmp(val).expect("Could not compare"))
         {
             Ok(idx) => {
                 // exactly on boundary
@@ -221,14 +221,15 @@ pub enum InvalidRangeTable {
     MismatchedCellCount { expected: usize, got: usize },
 }
 
-
-
 impl<I: PartialOrd + Copy + Debug, T> RangeTable<I, T> {
     pub fn new(bins_lookup: NdBinLookup<I>, cells: Vec<T>) -> Result<Self, InvalidRangeTable> {
         if bins_lookup.n_cells == cells.len() {
             Ok(Self { bins_lookup, cells })
         } else {
-            Err(InvalidRangeTable::MismatchedCellCount { expected: bins_lookup.n_cells, got: cells.len() })
+            Err(InvalidRangeTable::MismatchedCellCount {
+                expected: bins_lookup.n_cells,
+                got: cells.len(),
+            })
         }
     }
 

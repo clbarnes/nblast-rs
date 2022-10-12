@@ -8,7 +8,7 @@ use neurarbor::{edges_to_tree_with_data, resample_tree_points, Location, TopoArb
 
 use nblast::nalgebra::base::{Unit, Vector3};
 use nblast::{
-    table_to_fn, DistDot, NblastArena, NeuronIdx, Precision, RStarTangentsAlphas, RangeTable,
+    NblastArena, NeuronIdx, Precision, RStarTangentsAlphas, RangeTable,
     ScoreCalc, Symmetry, TangentAlpha,
 };
 
@@ -159,8 +159,12 @@ impl ArenaWrapper {
         Ok(self.arena.all_v_all(normalize, &sym, use_alpha, threads))
     }
 
-    pub fn len(&self, _py: Python) -> usize {
+    pub fn len(&self) -> usize {
         self.arena.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.arena.is_empty()
     }
 
     pub fn self_hit(&self, _py: Python, idx: NeuronIdx, use_alpha: bool) -> Option<Precision> {

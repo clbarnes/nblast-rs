@@ -27,9 +27,8 @@ class NblastArena:
         The required arguments describe a lookup table which is used to convert
         ``(distance, abs_dot_product)`` tuples into a score for a single
         point match.
-        The ``*_bins`` arguments describe the upper bounds of the bins
-        (although anything greater than the uppermost bound is considered to belong
-        to the top bin).
+        The ``*_bins`` arguments describe the bounds of the bins: N bounds make for N-1 bins.
+        Queries are clamped to the domain of the lookup.
         ``score_mat`` is the table of values, in dist-major order.
 
         For example, if the lookup table was stored as a pandas dataframe,
@@ -51,7 +50,7 @@ class NblastArena:
         self.threads = threads
         self.k = k
 
-        if score_mat.shape != (len(dist_bins), len(dot_bins)):
+        if score_mat.shape != (len(dist_bins) - 1, len(dot_bins) - 1):
             raise ValueError("Bin thresholds do not match score matrix")
         score_vec = score_mat.flatten().tolist()
         self._impl = ArenaWrapper(dist_bins, dot_bins, score_vec, self.k)
