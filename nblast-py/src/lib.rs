@@ -8,8 +8,8 @@ use neurarbor::{edges_to_tree_with_data, resample_tree_points, Location, TopoArb
 
 use nblast::nalgebra::base::{Unit, Vector3};
 use nblast::{
-    table_to_fn, DistDot, NblastArena, NeuronIdx, Precision, RStarTangentsAlphas, Symmetry,
-    TangentAlpha, RangeTable, ScoreCalc,
+    table_to_fn, DistDot, NblastArena, NeuronIdx, Precision, RStarTangentsAlphas, RangeTable,
+    ScoreCalc, Symmetry, TangentAlpha,
 };
 
 fn vec_to_array3<T: Sized + Copy>(v: &Vec<T>) -> [T; 3] {
@@ -36,7 +36,6 @@ fn str_to_sym(s: &str) -> Result<Symmetry, ()> {
 #[cfg(not(test))]
 #[pyclass]
 pub struct ArenaWrapper {
-    // TODO: can this box be avoided?
     arena: NblastArena<RStarTangentsAlphas>,
     k: usize,
 }
@@ -46,24 +45,24 @@ pub struct ArenaWrapper {
 impl ArenaWrapper {
     #[new]
     pub fn __new__(
-        obj: &PyRawObject,
         dist_thresholds: Vec<f64>,
         dot_thresholds: Vec<f64>,
         cells: Vec<f64>,
         k: usize,
-    ) -> PyResult<()> {
-        let score_calc = ScoreCalc::Table(RangeTable::new_from_bins(vec![dist_thresholds, dot_thresholds], cells).unwrap());
-        obj.init(Self {
+    ) -> PyResult<Self> {
+        let rtable = RangeTable::new_from_bins(vec![dist_thresholds, dot_thresholds], cells)
+            .map_err(|e| PyErr::new::<exceptions::PyValueError, _>(format!("{}", e)))?;
+        let score_calc = ScoreCalc::Table(rtable);
+        Ok(Self {
             arena: NblastArena::new(score_calc),
             k,
-        });
-        Ok(())
+        })
     }
 
     pub fn add_points(&mut self, py: Python, points: Vec<Vec<f64>>) -> PyResult<usize> {
         py.allow_threads(|| {
             let neuron = RStarTangentsAlphas::new(points.iter().map(vec_to_array3), self.k)
-                .map_err(PyErr::new::<exceptions::RuntimeError, _>)?;
+                .map_err(PyErr::new::<exceptions::PyRuntimeError, _>)?;
             Ok(self.arena.add_neuron(neuron))
         })
     }
@@ -88,7 +87,7 @@ impl ArenaWrapper {
                 points.iter().map(vec_to_array3),
                 tangents_alphas,
             )
-            .map_err(PyErr::new::<exceptions::RuntimeError, _>)?;
+            .map_err(PyErr::new::<exceptions::PyRuntimeError, _>)?;
             Ok(self.arena.add_neuron(neuron))
         })
     }
@@ -105,7 +104,7 @@ impl ArenaWrapper {
         py.allow_threads(|| {
             let sym = match symmetry {
                 Some(s) => Some(str_to_sym(s).map_err(|_| {
-                    PyErr::new::<exceptions::ValueError, _>("Symmetry type not recognised")
+                    PyErr::new::<exceptions::PyValueError, _>("Symmetry type not recognised")
                 })?),
                 _ => None,
             };
@@ -126,7 +125,10 @@ impl ArenaWrapper {
     ) -> PyResult<HashMap<(NeuronIdx, NeuronIdx), f64>> {
         let sym = match symmetry {
             Some(s) => Some(str_to_sym(s).map_err(|_| {
-                PyErr::new::<exceptions::ValueError, _>("Symmetry type not recognised")
+                PyErr::new::<exceptions::PyValueError, _>(format!(
+                    "Symmetry type '{}' not recognised",
+                    s
+                ))
             })?),
             _ => None,
         };
@@ -150,7 +152,7 @@ impl ArenaWrapper {
     ) -> PyResult<HashMap<(NeuronIdx, NeuronIdx), Precision>> {
         let sym = match symmetry {
             Some(s) => Some(str_to_sym(s).map_err(|_| {
-                PyErr::new::<exceptions::ValueError, _>("Symmetry type not recognised")
+                PyErr::new::<exceptions::PyValueError, _>("Symmetry type not recognised")
             })?),
             _ => None,
         };
@@ -198,17 +200,16 @@ struct ResamplingArbor {
 impl ResamplingArbor {
     #[new]
     fn __new__(
-        obj: &PyRawObject,
+        // obj: &PyObject,
         table: Vec<(usize, Option<usize>, Precision, Precision, Precision)>,
-    ) -> PyResult<()> {
+    ) -> PyResult<Self> {
         let edges_with_data: Vec<_> = table
             .iter()
             .map(|(child, parent, x, y, z)| (*child, *parent, [*x, *y, *z]))
             .collect();
         let (tree, tnid_to_id) = edges_to_tree_with_data(&edges_with_data)
-            .map_err(|_| PyErr::new::<exceptions::ValueError, _>("Could not construct tree"))?;
-        obj.init(Self { tree, tnid_to_id });
-        Ok(())
+            .map_err(|_| PyErr::new::<exceptions::PyValueError, _>("Could not construct tree"))?;
+        Ok(Self { tree, tnid_to_id })
     }
 
     pub fn prune_at(&mut self, py: Python, ids: Vec<usize>) -> usize {
@@ -289,18 +290,17 @@ impl ResamplingArbor {
     }
 }
 
-
+#[pyfunction]
+fn get_version(_py: Python) -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
 
 #[cfg(not(test))]
 #[pymodule]
 fn pynblast(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ArenaWrapper>()?;
     m.add_class::<ResamplingArbor>()?;
-
-    #[pyfn(m, "get_version")]
-    fn get_version(_py: Python) -> String {
-        env!("CARGO_PKG_VERSION").to_string()
-    }
+    m.add_function(wrap_pyfunction!(get_version, m)?)?;
 
     Ok(())
 }
