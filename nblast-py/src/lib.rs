@@ -9,7 +9,7 @@ use neurarbor::{edges_to_tree_with_data, resample_tree_points, Location, TopoArb
 use nblast::nalgebra::base::{Unit, Vector3};
 use nblast::{
     table_to_fn, DistDot, NblastArena, NeuronIdx, Precision, RStarTangentsAlphas, Symmetry,
-    TangentAlpha,
+    TangentAlpha, RangeTable, ScoreCalc,
 };
 
 fn vec_to_array3<T: Sized + Copy>(v: &Vec<T>) -> [T; 3] {
@@ -37,7 +37,7 @@ fn str_to_sym(s: &str) -> Result<Symmetry, ()> {
 #[pyclass]
 pub struct ArenaWrapper {
     // TODO: can this box be avoided?
-    arena: NblastArena<RStarTangentsAlphas, Box<dyn Fn(&DistDot) -> Precision + Sync + Send>>,
+    arena: NblastArena<RStarTangentsAlphas>,
     k: usize,
 }
 
@@ -45,16 +45,16 @@ pub struct ArenaWrapper {
 #[pymethods]
 impl ArenaWrapper {
     #[new]
-    fn __new__(
+    pub fn __new__(
         obj: &PyRawObject,
         dist_thresholds: Vec<f64>,
         dot_thresholds: Vec<f64>,
         cells: Vec<f64>,
         k: usize,
     ) -> PyResult<()> {
-        let score_fn = table_to_fn(dist_thresholds, dot_thresholds, cells);
+        let score_calc = ScoreCalc::Table(RangeTable::new_from_bins(vec![dist_thresholds, dot_thresholds], cells).unwrap());
         obj.init(Self {
-            arena: NblastArena::new(Box::new(score_fn)),
+            arena: NblastArena::new(score_calc),
             k,
         });
         Ok(())
@@ -288,6 +288,8 @@ impl ResamplingArbor {
         self.tree.root().unwrap().data().0
     }
 }
+
+
 
 #[cfg(not(test))]
 #[pymodule]
