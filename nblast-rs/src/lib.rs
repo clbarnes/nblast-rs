@@ -642,14 +642,14 @@ impl<N: QueryNeuron> NeuronSelfHit<N> {
 }
 
 pub enum ScoreCalc {
-    Func(Box<dyn Fn(&DistDot) -> Precision + Sync>),
+    // Func(Box<dyn Fn(&DistDot) -> Precision + Sync>),
     Table(RangeTable<Precision, Precision>),
 }
 
 impl ScoreCalc {
     pub fn calc(&self, dist_dot: &DistDot) -> Precision {
         match self {
-            Self::Func(func) => func(dist_dot),
+            // Self::Func(func) => func(dist_dot),
             Self::Table(tab) => *tab.lookup(&[dist_dot.dist, dist_dot.dot]),
         }
     }
@@ -1068,40 +1068,40 @@ mod test {
         assert_eq!(find_bin_binary(0.1, &dots), 1);
     }
 
-    #[test]
-    fn score_function() {
-        let dist_thresholds = vec![1.0, 2.0];
-        let dot_thresholds = vec![0.5, 1.0];
-        let cells = vec![1.0, 2.0, 4.0, 8.0];
+    // #[test]
+    // fn score_function() {
+    //     let dist_thresholds = vec![1.0, 2.0];
+    //     let dot_thresholds = vec![0.5, 1.0];
+    //     let cells = vec![1.0, 2.0, 4.0, 8.0];
 
-        let score_calc = ScoreCalc::Func(Box::new(table_to_fn(dist_thresholds, dot_thresholds, cells)));
+    //     let score_calc = ScoreCalc::Func(Box::new(table_to_fn(dist_thresholds, dot_thresholds, cells)));
 
-        let q_points = make_points(&[0., 0., 0.], &[1.0, 0.0, 0.0], 10);
-        let query = PointsTangentsAlphas::new(q_points.clone(), N_NEIGHBORS)
-            .expect("Query construction failed");
-        let query2 = RStarTangentsAlphas::new(&q_points, N_NEIGHBORS).expect("Construction failed");
-        let target = RStarTangentsAlphas::new(
-            &make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10),
-            N_NEIGHBORS,
-        )
-        .expect("Construction failed");
+    //     let q_points = make_points(&[0., 0., 0.], &[1.0, 0.0, 0.0], 10);
+    //     let query = PointsTangentsAlphas::new(q_points.clone(), N_NEIGHBORS)
+    //         .expect("Query construction failed");
+    //     let query2 = RStarTangentsAlphas::new(&q_points, N_NEIGHBORS).expect("Construction failed");
+    //     let target = RStarTangentsAlphas::new(
+    //         &make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10),
+    //         N_NEIGHBORS,
+    //     )
+    //     .expect("Construction failed");
 
-        assert_close(
-            query.query(&target, false, &score_calc),
-            query2.query(&target, false, &score_calc),
-        );
-        assert_close(
-            query.self_hit(&score_calc, false),
-            query2.self_hit(&score_calc, false),
-        );
-        let score = query.query(&query2, false, &score_calc);
-        let self_hit = query.self_hit(&score_calc, false);
-        println!("score: {:?}, self-hit {:?}", score, self_hit);
-        assert_close(
-            query.query(&query2, false, &score_calc),
-            query.self_hit(&score_calc, false),
-        );
-    }
+    //     assert_close(
+    //         query.query(&target, false, &score_calc),
+    //         query2.query(&target, false, &score_calc),
+    //     );
+    //     assert_close(
+    //         query.self_hit(&score_calc, false),
+    //         query2.self_hit(&score_calc, false),
+    //     );
+    //     let score = query.query(&query2, false, &score_calc);
+    //     let self_hit = query.self_hit(&score_calc, false);
+    //     println!("score: {:?}, self-hit {:?}", score, self_hit);
+    //     assert_close(
+    //         query.query(&query2, false, &score_calc),
+    //         query.self_hit(&score_calc, false),
+    //     );
+    // }
 
     #[test]
     fn arena() {
@@ -1187,19 +1187,19 @@ mod test {
         test_symmetry_multiple(&Symmetry::Max)
     }
 
-    #[test]
-    fn alpha_changes_results() {
-        let (points, _, _) = tangent_data();
-        let neuron = RStarTangentsAlphas::new(points, N_NEIGHBORS).unwrap();
-        let score_calc = ScoreCalc::Func(Box::new(|dd: &DistDot| dd.dot));
+    // #[test]
+    // fn alpha_changes_results() {
+    //     let (points, _, _) = tangent_data();
+    //     let neuron = RStarTangentsAlphas::new(points, N_NEIGHBORS).unwrap();
+    //     let score_calc = ScoreCalc::Func(Box::new(|dd: &DistDot| dd.dot));
 
-        let sh = neuron.self_hit(&score_calc, false);
-        let sh_a = neuron.self_hit(&score_calc, true);
-        assert!(!is_close(sh, sh_a));
+    //     let sh = neuron.self_hit(&score_calc, false);
+    //     let sh_a = neuron.self_hit(&score_calc, true);
+    //     assert!(!is_close(sh, sh_a));
 
-        let q = neuron.query(&neuron, false, &score_calc);
-        let q_a = neuron.query(&neuron, true, &score_calc);
+    //     let q = neuron.query(&neuron, false, &score_calc);
+    //     let q_a = neuron.query(&neuron, true, &score_calc);
 
-        assert!(!is_close(q, q_a));
-    }
+    //     assert!(!is_close(q, q_a));
+    // }
 }

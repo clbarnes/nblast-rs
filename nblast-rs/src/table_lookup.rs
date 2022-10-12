@@ -4,6 +4,8 @@ use std::error;
 use std::fmt;
 use std::fmt::Debug;
 
+use thiserror::Error;
+
 #[derive(Debug, PartialEq)]
 pub enum OutOfBin {
     Before,
@@ -115,7 +117,7 @@ impl<T: PartialOrd + Copy + Debug> BinLookup<T> {
         // which is already all it supports anyway
         match self
             .bin_boundaries
-            .binary_search_by(|bound| bound.partial_cmp(&val).unwrap())
+            .binary_search_by(|bound| bound.partial_cmp(&val).expect("Could not compare"))
         {
             Ok(idx) => {
                 // exactly on boundary
@@ -168,7 +170,7 @@ impl<T: PartialOrd + Copy + Debug> NdBinLookup<T> {
             idx_mult.push(remaining_cells);
         }
 
-        NdBinLookup {
+        Self {
             lookups,
             idx_mult,
             n_cells,
@@ -211,22 +213,34 @@ pub struct RangeTable<I: PartialOrd + Clone + Debug, T> {
     pub cells: Vec<T>,
 }
 
+#[derive(Error, Debug)]
+pub enum InvalidRangeTable {
+    #[error("Illegal bin boundaries")]
+    IllegalBinBoundaries(#[from] IllegalBinBoundaries),
+    #[error("Mismatched cell count: expected {expected:?} cells and got {got:?}")]
+    MismatchedCellCount { expected: usize, got: usize },
+}
+
+
+
 impl<I: PartialOrd + Copy + Debug, T> RangeTable<I, T> {
-    pub fn new(bins_lookup: NdBinLookup<I>, cells: Vec<T>) -> Result<Self, ()> {
+    pub fn new(bins_lookup: NdBinLookup<I>, cells: Vec<T>) -> Result<Self, InvalidRangeTable> {
         if bins_lookup.n_cells == cells.len() {
             Ok(Self { bins_lookup, cells })
         } else {
-            Err(())
+            Err(InvalidRangeTable::MismatchedCellCount { expected: bins_lookup.n_cells, got: cells.len() })
         }
     }
 
-    pub fn new_from_bins(bins: Vec<Vec<I>>, cells: Vec<T>) -> Result<Self, ()> {
+    pub fn new_from_bins(bins: Vec<Vec<I>>, cells: Vec<T>) -> Result<Self, InvalidRangeTable> {
         let mut lookups = Vec::with_capacity(bins.len());
         for b in bins {
-            match BinLookup::new(b, (true, true)) {
-                Ok(lookup) => lookups.push(lookup),
-                _ => return Err(()),
-            }
+            let lookup = BinLookup::new(b, (true, true))?;
+            lookups.push(lookup);
+            // match BinLookup::new(b, (true, true)) {
+            //     Ok(lookup) => lookups.push(lookup),
+            //     Err(e) => return Err(e),
+            // }
         }
 
         Self::new(NdBinLookup::new(lookups), cells)
@@ -234,7 +248,7 @@ impl<I: PartialOrd + Copy + Debug, T> RangeTable<I, T> {
 
     pub fn lookup(&self, vals: &[I]) -> &T {
         let idx = self.bins_lookup.to_linear_idx(vals).expect("Out of bounds");
-        self.cells.get(idx).unwrap()
+        self.cells.get(idx).expect("Index out of bounds")
     }
 }
 
