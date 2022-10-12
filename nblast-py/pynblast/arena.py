@@ -27,7 +27,8 @@ class NblastArena:
         The required arguments describe a lookup table which is used to convert
         ``(distance, abs_dot_product)`` tuples into a score for a single
         point match.
-        The ``*_bins`` arguments describe the bounds of the bins: N bounds make for N-1 bins.
+        The ``*_bins`` arguments describe the bounds of the bins:
+        N bounds make for N-1 bins.
         Queries are clamped to the domain of the lookup.
         ``score_mat`` is the table of values, in dist-major order.
 
