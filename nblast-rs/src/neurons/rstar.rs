@@ -1,8 +1,8 @@
 use super::{Neuron, QueryNeuron, TargetNeuron};
 use crate::{geometric_mean, DistDot, Normal3, Point3, Precision, ScoreCalc, TangentAlpha};
-use rstar::{primitives::PointWithData, PointDistance, RTree};
+use rstar::{primitives::GeomWithData, PointDistance, RTree};
 
-type PointWithIndex = PointWithData<usize, Point3>;
+type PointWithIndex = GeomWithData<Point3, usize>;
 
 fn points_to_rtree(
     points: impl Iterator<Item = impl std::borrow::Borrow<Point3>>,
@@ -10,7 +10,7 @@ fn points_to_rtree(
     Ok(RTree::bulk_load(
         points
             .enumerate()
-            .map(|(idx, point)| PointWithIndex::new(idx, *point.borrow()))
+            .map(|(idx, point)| PointWithIndex::new( *point.borrow(), idx))
             .collect(),
     ))
 }
@@ -29,7 +29,7 @@ pub(crate) fn points_to_rtree_tangents_alphas(
                 rtree
                     .nearest_neighbor_iter(p.borrow())
                     .take(k)
-                    .map(|pwd| pwd.position()),
+                    .map(|pwd| pwd.geom()),
             )
         })
         .collect();
@@ -85,7 +85,7 @@ impl Neuron for RStarTangentsAlphas {
     fn points(&self) -> Vec<Point3> {
         let mut unsorted: Vec<&PointWithIndex> = self.rtree.iter().collect();
         unsorted.sort_by_key(|pwd| pwd.data);
-        unsorted.into_iter().map(|pwd| *pwd.position()).collect()
+        unsorted.into_iter().map(|pwd| *pwd.geom()).collect()
     }
 
     fn tangents(&self) -> Vec<Normal3> {
@@ -108,7 +108,7 @@ impl QueryNeuron for RStarTangentsAlphas {
                 } else {
                     None
                 };
-                target.nearest_match_dist_dot(q_pt_idx.position(), &tangent_alpha.tangent, alpha)
+                target.nearest_match_dist_dot(q_pt_idx.geom(), &tangent_alpha.tangent, alpha)
             })
             .collect()
     }
@@ -128,7 +128,7 @@ impl QueryNeuron for RStarTangentsAlphas {
                 None
             };
             let dd =
-                target.nearest_match_dist_dot(q_pt_idx.position(), &tangent_alpha.tangent, alpha);
+                target.nearest_match_dist_dot(q_pt_idx.geom(), &tangent_alpha.tangent, alpha);
             let score = score_calc.calc(&dd);
             score_total += score;
         }
@@ -180,10 +180,10 @@ impl TargetNeuron for RStarTangentsAlphas {
     }
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
+// #[cfg(test)]
+// mod test {
+//     use super::*;
 
-    const EPSILON: Precision = 0.001;
-    const N_NEIGHBORS: usize = 5;
-}
+//     const EPSILON: Precision = 0.001;
+//     const N_NEIGHBORS: usize = 5;
+// }

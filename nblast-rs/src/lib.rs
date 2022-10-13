@@ -58,7 +58,6 @@
 //! a score for that point match, for convenient many-to-many comparisons.
 //! A pre-calculated table of point match scores can be converted into a function with [table_to_fn](fn.table_to_fn.html).
 use nalgebra::base::{Matrix3, Unit, Vector3};
-use rstar::primitives::PointWithData;
 use std::collections::{HashMap, HashSet};
 
 #[cfg(feature = "parallel")]

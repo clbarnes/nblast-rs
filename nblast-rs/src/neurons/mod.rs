@@ -1,7 +1,7 @@
 use crate::{DistDot, Normal3, Point3, Precision, ScoreCalc};
 
-pub mod fnntw;
-pub mod nabo;
+// pub mod fnntw;
+// pub mod nabo;
 pub mod rstar;
 
 /// Trait describing a point cloud representing a neuron.
