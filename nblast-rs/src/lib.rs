@@ -151,6 +151,12 @@ impl Symmetry {
     }
 }
 
+impl Default for Symmetry {
+    fn default() -> Self {
+        Symmetry::GeometricMean
+    }
+}
+
 /// The result of comparing two (point, tangent) tuples.
 /// Contains the Euclidean distance between the points,
 /// and the absolute dot product of the (unit) tangents,
