@@ -43,16 +43,16 @@ jobs:
           pip install -U pip wheel
           pip install -r requirements.txt
         name: Install dependencies
-      - run: maturin develop --release
-      # - run: |
-      #     mkdir -p $TGT_DIR
-      #     rm -f $TGT_DIR/*.whl
-      #     maturin build --release --interpreter python --out $TGT_DIR
-      #     pip install $TGT_DIR/*.whl
+      - run: |
+          mkdir -p $TGT_DIR
+          rm -f $TGT_DIR/*.whl
+          maturin build --release --interpreter python --out $TGT_DIR
+          pip install $TGT_DIR/*.whl
         name: Install package
-        # env:
-        #   TGT_DIR: "target/wheels/${{ matrix.python-version }}"
-      - run: pytest --verbose
+        env:
+          TGT_DIR: "target/wheels/${{ matrix.python-version }}"
+      # change into upper directory so that pytest doesn't import locally
+      - run: cd .. && pytest --verbose
 
   deploy:
     strategy:
