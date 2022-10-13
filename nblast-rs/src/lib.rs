@@ -59,7 +59,6 @@
 //! A pre-calculated table of point match scores can be converted into a function with [table_to_fn](fn.table_to_fn.html).
 use nalgebra::base::{Matrix3, Unit, Vector3};
 use rstar::primitives::PointWithData;
-use rstar::{PointDistance, RTree};
 use std::collections::{HashMap, HashSet};
 
 #[cfg(feature = "parallel")]
@@ -73,6 +72,11 @@ pub use smat::ScoreMatrixBuilder;
 mod table_lookup;
 pub use table_lookup::{BinLookup, NdBinLookup, RangeTable};
 
+mod neurons;
+use neurons::rstar::points_to_rtree_tangents_alphas;
+pub use neurons::rstar::RStarTangentsAlphas;
+pub use neurons::{Neuron, QueryNeuron, TargetNeuron};
+
 /// Floating point precision type used internally
 pub type Precision = f64;
 /// 3D point type used internally
@@ -80,12 +84,17 @@ pub type Point3 = [Precision; 3];
 /// 3D unit-length vector type used internally
 pub type Normal3 = Unit<Vector3<Precision>>;
 
-type PointWithIndex = PointWithData<usize, Point3>;
-
 fn geometric_mean(a: Precision, b: Precision) -> Precision {
     (a.max(0.0) * b.max(0.0)).sqrt()
 }
 
+fn harmonic_mean(a: Precision, b: Precision) -> Precision {
+    if a <= 0.0 || b <= 0.0 {
+        0.0
+    } else {
+        2.0 / (1.0 / a + 1.0 / b)
+    }
+}
 /// A tangent, alpha pair associated with a point.
 #[derive(Copy, Clone, Debug)]
 pub struct TangentAlpha {
@@ -131,23 +140,15 @@ pub enum Symmetry {
     Max,
 }
 
-fn apply_symmetry(
-    symmetry: &Symmetry,
-    query_score: Precision,
-    target_score: Precision,
-) -> Precision {
-    match symmetry {
-        Symmetry::ArithmeticMean => (query_score + target_score) / 2.0,
-        Symmetry::GeometricMean => geometric_mean(query_score, target_score),
-        Symmetry::HarmonicMean => {
-            if query_score.max(0.0) * target_score.max(0.0) == 0.0 {
-                0.0
-            } else {
-                2.0 / (1.0 / query_score + 1.0 / target_score)
-            }
+impl Symmetry {
+    pub fn apply(&self, query_score: Precision, target_score: Precision) -> Precision {
+        match self {
+            Symmetry::ArithmeticMean => (query_score + target_score) / 2.0,
+            Symmetry::GeometricMean => geometric_mean(query_score, target_score),
+            Symmetry::HarmonicMean => harmonic_mean(query_score, target_score),
+            Symmetry::Min => query_score.min(target_score),
+            Symmetry::Max => query_score.max(target_score),
         }
-        Symmetry::Min => query_score.min(target_score),
-        Symmetry::Max => query_score.max(target_score),
     }
 }
 
@@ -186,55 +187,6 @@ impl Default for DistDot {
             dot: 1.0,
         }
     }
-}
-
-/// Trait describing a point cloud representing a neuron.
-pub trait Neuron {
-    /// Number of points in the neuron.
-    fn len(&self) -> usize;
-
-    /// Whether the number of points is 0.
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Return an owned copy of the points present in the neuron.
-    /// The order is not guaranteed, but is consistent with
-    /// [tangents](#method.tangents).
-    fn points(&self) -> Vec<Point3>;
-
-    /// Return an owned copy of the unit tangents present in the neuron.
-    /// The order is not guaranteed, but is consistent with
-    /// [points](#method.points).
-    fn tangents(&self) -> Vec<Normal3>;
-
-    /// Return an owned copy of the alpha values for points in the neuron.
-    /// The order is consistent with [points](#method.points)
-    /// and [tangents](#method.tangents).
-    fn alphas(&self) -> Vec<Precision>;
-}
-
-/// Trait for objects which can be used as queries
-/// (not necessarily as targets) with NBLAST.
-/// See [TargetNeuron](trait.TargetNeuron.html).
-pub trait QueryNeuron: Neuron {
-    /// Calculate the distance and (alpha-scaled) absolute dot products for point matches
-    /// between this and a target neuron.
-    fn query_dist_dots(&self, target: &impl TargetNeuron, use_alpha: bool) -> Vec<DistDot>;
-
-    /// Calculate the raw NBLAST score by comparing this neuron to
-    /// the given target neuron, using the given score function.
-    /// The score function is applied to each point match distance and summed.
-    fn query(
-        &self,
-        target: &impl TargetNeuron,
-        use_alpha: bool,
-        score_calc: &ScoreCalc,
-    ) -> Precision;
-
-    /// The raw NBLAST score if this neuron was compared with itself using the given score function.
-    /// Used for normalisation.
-    fn self_hit(&self, score_calc: &ScoreCalc, use_alpha: bool) -> Precision;
 }
 
 fn subtract_points(p1: &Point3, p2: &Point3) -> Point3 {
@@ -292,39 +244,6 @@ fn calc_inertia<'a>(points: impl Iterator<Item = &'a Point3>) -> Matrix3<Precisi
         dot(&zs, &ys),
         dot(&zs, &zs),
     )
-}
-
-fn points_to_rtree(
-    points: impl Iterator<Item = impl std::borrow::Borrow<Point3>>,
-) -> Result<RTree<PointWithIndex>, &'static str> {
-    Ok(RTree::bulk_load(
-        points
-            .enumerate()
-            .map(|(idx, point)| PointWithIndex::new(idx, *point.borrow()))
-            .collect(),
-    ))
-}
-
-fn points_to_rtree_tangents_alphas(
-    points: impl Iterator<Item = impl std::borrow::Borrow<Point3>> + ExactSizeIterator + Clone,
-    k: usize,
-) -> Result<(RTree<PointWithIndex>, Vec<TangentAlpha>), &'static str> {
-    if points.len() < k {
-        return Err("Too few points to generate tangents");
-    }
-    let rtree = points_to_rtree(points.clone())?;
-    let tangents_alphas = points
-        .map(|p| {
-            TangentAlpha::new_from_points(
-                rtree
-                    .nearest_neighbor_iter(p.borrow())
-                    .take(k)
-                    .map(|pwd| pwd.position()),
-            )
-        })
-        .collect();
-
-    Ok((rtree, tangents_alphas))
 }
 
 /// Minimal struct to use as the query (not the target) of an NBLAST
@@ -416,163 +335,6 @@ impl QueryNeuron for PointsTangentsAlphas {
                 dot: 1.0,
             }) * self.len() as Precision
         }
-    }
-}
-
-/// Trait describing a neuron which can be the target (or the query)
-/// of an NBLAST match.
-pub trait TargetNeuron: QueryNeuron {
-    /// For a given point and tangent vector,
-    /// get the distance to its nearest point in the target, and the absolute dot product
-    /// with that neighbor's tangent (i.e. absolute cosine of the angle, as they are both unit-length).
-    fn nearest_match_dist_dot(
-        &self,
-        point: &Point3,
-        tangent: &Normal3,
-        alpha: Option<Precision>,
-    ) -> DistDot;
-}
-
-/// Target neuron using an [R*-tree](https://en.wikipedia.org/wiki/R*_tree) for spatial queries.
-#[derive(Clone)]
-pub struct RStarTangentsAlphas {
-    rtree: RTree<PointWithIndex>,
-    tangents_alphas: Vec<TangentAlpha>,
-}
-
-impl RStarTangentsAlphas {
-    /// Calculate tangents from constructed R*-tree.
-    /// `k` is the number of points to calculate each tangent with.
-    pub fn new<T: std::borrow::Borrow<Point3>>(
-        points: impl IntoIterator<
-            Item = T,
-            IntoIter = impl Iterator<Item = T> + ExactSizeIterator + Clone,
-        >,
-        k: usize,
-    ) -> Result<Self, &'static str> {
-        points_to_rtree_tangents_alphas(points.into_iter(), k).map(|(rtree, tangents_alphas)| {
-            RStarTangentsAlphas {
-                rtree,
-                tangents_alphas,
-            }
-        })
-    }
-
-    /// Use pre-calculated tangents.
-    pub fn new_with_tangents_alphas<T: std::borrow::Borrow<Point3>>(
-        points: impl IntoIterator<
-            Item = T,
-            IntoIter = impl Iterator<Item = T> + ExactSizeIterator + Clone,
-        >,
-        tangents_alphas: Vec<TangentAlpha>,
-    ) -> Result<Self, &'static str> {
-        points_to_rtree(points.into_iter()).map(|rtree| RStarTangentsAlphas {
-            rtree,
-            tangents_alphas,
-        })
-    }
-}
-
-impl Neuron for RStarTangentsAlphas {
-    fn len(&self) -> usize {
-        self.tangents_alphas.len()
-    }
-
-    fn points(&self) -> Vec<Point3> {
-        let mut unsorted: Vec<&PointWithIndex> = self.rtree.iter().collect();
-        unsorted.sort_by_key(|pwd| pwd.data);
-        unsorted.into_iter().map(|pwd| *pwd.position()).collect()
-    }
-
-    fn tangents(&self) -> Vec<Normal3> {
-        self.tangents_alphas.iter().map(|ta| ta.tangent).collect()
-    }
-
-    fn alphas(&self) -> Vec<Precision> {
-        self.tangents_alphas.iter().map(|ta| ta.alpha).collect()
-    }
-}
-
-impl QueryNeuron for RStarTangentsAlphas {
-    fn query_dist_dots(&self, target: &impl TargetNeuron, use_alpha: bool) -> Vec<DistDot> {
-        self.rtree
-            .iter()
-            .map(|q_pt_idx| {
-                let tangent_alpha = self.tangents_alphas[q_pt_idx.data];
-                let alpha = if use_alpha {
-                    Some(tangent_alpha.alpha)
-                } else {
-                    None
-                };
-                target.nearest_match_dist_dot(q_pt_idx.position(), &tangent_alpha.tangent, alpha)
-            })
-            .collect()
-    }
-
-    fn query(
-        &self,
-        target: &impl TargetNeuron,
-        use_alpha: bool,
-        score_calc: &ScoreCalc,
-    ) -> Precision {
-        let mut score_total: Precision = 0.0;
-        for q_pt_idx in self.rtree.iter() {
-            let tangent_alpha = self.tangents_alphas[q_pt_idx.data];
-            let alpha = if use_alpha {
-                Some(tangent_alpha.alpha)
-            } else {
-                None
-            };
-            let dd =
-                target.nearest_match_dist_dot(q_pt_idx.position(), &tangent_alpha.tangent, alpha);
-            let score = score_calc.calc(&dd);
-            score_total += score;
-        }
-        score_total
-    }
-
-    fn self_hit(&self, score_calc: &ScoreCalc, use_alpha: bool) -> Precision {
-        if use_alpha {
-            self.tangents_alphas
-                .iter()
-                .map(|ta| {
-                    score_calc.calc(&DistDot {
-                        dist: 0.0,
-                        dot: ta.alpha,
-                    })
-                })
-                .fold(0.0, |total, s| total + s)
-        } else {
-            score_calc.calc(&DistDot {
-                dist: 0.0,
-                dot: 1.0,
-            }) * self.len() as Precision
-        }
-    }
-}
-
-impl TargetNeuron for RStarTangentsAlphas {
-    fn nearest_match_dist_dot(
-        &self,
-        point: &Point3,
-        tangent: &Normal3,
-        alpha: Option<Precision>,
-    ) -> DistDot {
-        self.rtree
-            .nearest_neighbor(point)
-            .map(|element| {
-                let ta = self.tangents_alphas[element.data];
-                let raw_dot = ta.tangent.dot(tangent).abs();
-                let dot = match alpha {
-                    Some(a) => raw_dot * geometric_mean(a, ta.alpha),
-                    None => raw_dot,
-                };
-                DistDot {
-                    dist: element.distance_2(point).sqrt(),
-                    dot,
-                }
-            })
-            .expect("impossible")
     }
 }
 
@@ -721,7 +483,7 @@ where
                 if normalize {
                     score2 /= t.score(use_alpha);
                 }
-                Some(apply_symmetry(s, score, score2))
+                Some(s.apply(score, score2))
             }
             _ => Some(score),
         }
@@ -771,7 +533,7 @@ where
                     // ! this applies symmetry twice if idx is in both input and output,
                     // but it's a cheap function
                     if let Some(backward) = raw.get(&(key.1, key.0)) {
-                        out.insert(key, apply_symmetry(s, *forward, *backward));
+                        out.insert(key, s.apply(*forward, *backward));
                     }
                 } else {
                     out.insert(key, *forward);
@@ -1156,8 +918,8 @@ mod test {
 
     fn test_symmetry(symmetry: &Symmetry, a: Precision, b: Precision) {
         assert_close(
-            apply_symmetry(symmetry, a, b),
-            apply_symmetry(symmetry, b, a),
+            symmetry.apply(a, b),
+            symmetry.apply(b, a),
         )
     }
 
