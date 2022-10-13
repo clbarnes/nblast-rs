@@ -8,8 +8,8 @@ use neurarbor::{edges_to_tree_with_data, resample_tree_points, Location, TopoArb
 
 use nblast::nalgebra::base::{Unit, Vector3};
 use nblast::{
-    NblastArena, NeuronIdx, Precision, RStarTangentsAlphas, RangeTable,
-    ScoreCalc, Symmetry, TangentAlpha,
+    NblastArena, NeuronIdx, Precision, RStarTangentsAlphas, RangeTable, ScoreCalc, Symmetry,
+    TangentAlpha,
 };
 
 fn vec_to_array3<T: Sized + Copy>(v: &Vec<T>) -> [T; 3] {
@@ -204,7 +204,6 @@ struct ResamplingArbor {
 impl ResamplingArbor {
     #[new]
     fn __new__(
-        // obj: &PyObject,
         table: Vec<(usize, Option<usize>, Precision, Precision, Precision)>,
     ) -> PyResult<Self> {
         let edges_with_data: Vec<_> = table
