@@ -10,7 +10,7 @@ fn points_to_rtree(
     Ok(RTree::bulk_load(
         points
             .enumerate()
-            .map(|(idx, point)| PointWithIndex::new( *point.borrow(), idx))
+            .map(|(idx, point)| PointWithIndex::new(*point.borrow(), idx))
             .collect(),
     ))
 }
@@ -127,8 +127,7 @@ impl QueryNeuron for RStarTangentsAlphas {
             } else {
                 None
             };
-            let dd =
-                target.nearest_match_dist_dot(q_pt_idx.geom(), &tangent_alpha.tangent, alpha);
+            let dd = target.nearest_match_dist_dot(q_pt_idx.geom(), &tangent_alpha.tangent, alpha);
             let score = score_calc.calc(&dd);
             score_total += score;
         }

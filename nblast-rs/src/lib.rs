@@ -922,10 +922,7 @@ mod test {
     }
 
     fn test_symmetry(symmetry: &Symmetry, a: Precision, b: Precision) {
-        assert_close(
-            symmetry.apply(a, b),
-            symmetry.apply(b, a),
-        )
+        assert_close(symmetry.apply(a, b), symmetry.apply(b, a))
     }
 
     fn test_symmetry_multiple(symmetry: &Symmetry) {
