@@ -6,16 +6,50 @@
     <base href=".">
   </head>
   <body>
+
+    <label for="kInput">k</label>
+    <input type="number" id="kInput" name="kInput" min="0" value="5">
+    <br/>
+
     <label for="smatInput">Score matrix</label>
     <input type="file" id="smatInput" name="smatInput" accept=".csv">
     <br/>
-    <label for="csvInput1">Point cloud 1</label>
-    <input type="file" id="csvInput1" name="csvInput1" accept=".csv">
+
+    <label for="normalizeInput">Normalize by self-hit</label>
+    <input type="checkbox" id="normalizeInput" checked>
     <br/>
-    <label for="csvInput2">Point cloud 2</label>
-    <input type="file" id="csvInput2" name="csvInput2" accept=".csv">
+
+    <label for="alphaInput">Use α (colinearity)</label>
+    <input type="checkbox" id="alphaInput" checked>
     <br/>
+
+    <label for="symmetryInput">Use reverse score</label>
+    <select name="symmetryInput" id="symmetryInput">
+      <option value="arithmetic_mean">Arithmetic mean</option>
+      <option value="geometric_mean">Geometric mean</option>
+      <option value="harmonic_mean" selected>Harmonic mean</option>
+      <option value="min">Minimum</option>
+      <option value="max">Maximum</option>
+      <option value="">None</option>
+    </select>
+    <br/>
+
+    <label for="csvInput1">Point clouds</label>
+    <input type="file" id="csvInput" name="csvInput" accept=".csv" multiple="multiple" disabled>
+    <br/>
+
+    <table id="indexTable">
+      <tr>
+        <th>Index</th>
+        <th>Filename</th>
+      </tr>
+    </table>
+
     <button type="button" id="button" disabled>NBLAST!</button>
+    <p id="progress"></p>
+
+    <div id="resultsDiv"></div>
+
     <script type="module" src="./index.js"></script>
   </body>
 </html>
