@@ -22,7 +22,7 @@ travis-ci = { repository = "https://github.com/clbarnes/nblast-rs", branch = "ma
 
 nalgebra = "0.31"
 rstar = "0.9"
-rand = "0.8"
+rand = { version = "0.8", default-features = false }
 rand_pcg = "0.3"
 rayon = { version = "1.5", optional = true }
 thiserror = "1.0"

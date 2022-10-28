@@ -21,11 +21,13 @@
 use rand::distributions::{Distribution, Uniform};
 use rand::SeedableRng;
 use rand_pcg::Pcg32;
+#[cfg(feature = "rayon")]
 use rayon::prelude::*;
 use std::collections::HashSet;
 use std::error;
 use std::fmt;
 use std::iter;
+#[cfg(feature = "rayon")]
 use std::sync::mpsc::channel;
 
 use crate::{BinLookup, NdBinLookup, RangeTable};

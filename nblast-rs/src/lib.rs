@@ -604,16 +604,15 @@ fn pairs_to_raw_serial<N: TargetNeuron + Sync>(
 }
 
 #[cfg(not(feature = "parallel"))]
-fn pairs_to_raw<N, F>(
-    arena: &NblastArena<N, F>,
+fn pairs_to_raw<N>(
+    arena: &NblastArena<N>,
     pairs: &[(NeuronIdx, NeuronIdx)],
     normalize: bool,
     use_alpha: bool,
-    threads: Option<usize>,
+    _threads: Option<usize>,
 ) -> HashMap<(NeuronIdx, NeuronIdx), Precision>
 where
     N: TargetNeuron + Sync,
-    F: Fn(&DistDot) -> Precision + Sync,
 {
     pairs_to_raw_serial(arena, pairs, normalize, use_alpha)
 }

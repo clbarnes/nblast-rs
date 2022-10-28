@@ -238,10 +238,6 @@ impl<I: PartialOrd + Copy + Debug, T> RangeTable<I, T> {
         for b in bins {
             let lookup = BinLookup::new(b, (true, true))?;
             lookups.push(lookup);
-            // match BinLookup::new(b, (true, true)) {
-            //     Ok(lookup) => lookups.push(lookup),
-            //     Err(e) => return Err(e),
-            // }
         }
 
         Self::new(NdBinLookup::new(lookups), cells)
