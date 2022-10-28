@@ -80,7 +80,9 @@ impl NblastArena {
     ) -> JsResult<Option<f64>> {
         let sym = match symmetry {
             Some(s) => {
-                let sym_str = s.as_string().ok_or(JsError::new("Invalid symmetry"))?;
+                let sym_str = s
+                    .as_string()
+                    .ok_or_else(|| JsError::new("Invalid symmetry"))?;
                 let sym_enum = str_to_sym(&sym_str).map_err(JsError::new)?;
                 Some(sym_enum)
             }
