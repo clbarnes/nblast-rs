@@ -205,6 +205,24 @@ async function onSmatChange(ev) {
   document.getElementById("csvInput").disabled = false;
 }
 
+function onClearClick(ev) {
+  console.log("clearing")
+  Object.keys(CACHE).forEach(key => delete CACHE[key]);
+  document.getElementById("smatInput").value = null;
+  const csvInput = document.getElementById("csvInput");
+  csvInput.value = null;
+  csvInput.disabled = true;
+
+  const button = document.getElementById("button");
+  button.disabled = true;
+
+  document.getElementById("resultsDiv").innerHTML = "";
+  const indexTable = document.getElementById("indexTable");
+  while (indexTable.children.length > 1) {
+    indexTable.removeChild(indexTable.lastElementChild);
+  }
+}
+
 init().then(() => {
   let smatInput = document.getElementById("smatInput")
   smatInput.onchange = onSmatChange;
@@ -214,6 +232,10 @@ init().then(() => {
 
   const button = document.getElementById("button");
   button.onclick = onButtonClick;
+
+  const clearButton = document.getElementById("clearButton");
+  clearButton.onclick = onClearClick;
+
   console.log("ready");
   window.CACHE = CACHE;
 });
