@@ -2,9 +2,7 @@ use std::error::Error;
 use std::fmt::Display;
 
 use js_sys::JsString;
-use nblast::{
-    NeuronIdx, RStarTangentsAlphas, RangeTable, ScoreCalc, Symmetry,
-};
+use nblast::{NeuronIdx, RStarTangentsAlphas, RangeTable, ScoreCalc, Symmetry};
 use wasm_bindgen::prelude::*;
 
 fn flat_to_array3<T: Sized + Copy>(v: &[T]) -> Vec<[T; 3]> {
