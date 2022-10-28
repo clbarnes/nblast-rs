@@ -1,9 +1,9 @@
 .PHONY: pkg
-pkg:
+pkg-debug:
 	wasm-pack build --target web
 
 .PHONY:
-pkg-release:
+pkg:
 	wasm-pack build --release --target web
 
 .PHONY: clean-pkg
