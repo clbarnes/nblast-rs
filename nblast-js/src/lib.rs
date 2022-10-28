@@ -1,5 +1,5 @@
-use std::{error::Error, collections::HashMap};
 use std::fmt::Display;
+use std::{collections::HashMap, error::Error};
 
 use js_sys::JsString;
 use nblast::Precision;
@@ -51,12 +51,12 @@ fn parse_symmetry(symmetry: Option<JsString>) -> JsResult<Option<Symmetry>> {
     Ok(s)
 }
 
-fn convert_multi_output(mut result: HashMap<(NeuronIdx, NeuronIdx), Precision>) -> HashMap<NeuronIdx, HashMap<NeuronIdx, Precision>> {
+fn convert_multi_output(
+    mut result: HashMap<(NeuronIdx, NeuronIdx), Precision>,
+) -> HashMap<NeuronIdx, HashMap<NeuronIdx, Precision>> {
     let mut out: HashMap<NeuronIdx, HashMap<NeuronIdx, f64>> = HashMap::default();
     for ((q, t), v) in result.drain() {
-        out.entry(q)
-        .or_insert_with(HashMap::default)
-        .insert(t, v);
+        out.entry(q).or_insert_with(HashMap::default).insert(t, v);
     }
     out
 }
@@ -131,7 +131,14 @@ impl NblastArena {
         use_alpha: bool,
     ) -> JsResult<JsValue> {
         let sym = parse_symmetry(symmetry)?;
-        let out = convert_multi_output(self.arena.queries_targets(query_idxs, target_idxs, normalize, &sym, use_alpha, None));
+        let out = convert_multi_output(self.arena.queries_targets(
+            query_idxs,
+            target_idxs,
+            normalize,
+            &sym,
+            use_alpha,
+            None,
+        ));
         Ok(serde_wasm_bindgen::to_value(&out)?)
     }
 
