@@ -1,0 +1,14 @@
+{
+  "name": "nblast-app",
+  "version": "1.0.0",
+  "description": "NBLAST two point clouds against each other",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Chris L. Barnes",
+  "license": "MIT",
+  "dependencies": {
+    "nblast-js": "file:../../pkg"
+  }
+}

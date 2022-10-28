@@ -1,0 +1,19 @@
+[package]
+name = "nblast-js"
+version = "0.3.0"
+edition = "2021"
+authors = ["Chris L. Barnes <chrislloydbarnes@gmail.com>"]
+description = "Javascript bindings for nblast-rs library"
+readme = "README.md"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = {version = "1", features = ["derive"]}
+serde-wasm-bindgen = "0.4.5"
+wasm-bindgen = "0.2.83"
+js-sys = "0.3"
+nblast = { path = "../nblast-rs", version = "^0.4.0", default-features = false }
+
+[lib]
+crate-type = ["cdylib"]
