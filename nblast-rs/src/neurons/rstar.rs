@@ -1,5 +1,7 @@
 use super::{Neuron, QueryNeuron, TargetNeuron};
-use crate::{geometric_mean, DistDot, Normal3, Point3, Precision, ScoreCalc, TangentAlpha};
+use crate::{
+    centroid, geometric_mean, DistDot, Normal3, Point3, Precision, ScoreCalc, TangentAlpha,
+};
 use rstar::{primitives::GeomWithData, PointDistance, RTree};
 
 type PointWithIndex = GeomWithData<Point3, usize>;
@@ -86,6 +88,10 @@ impl Neuron for RStarTangentsAlphas {
         let mut unsorted: Vec<&PointWithIndex> = self.rtree.iter().collect();
         unsorted.sort_by_key(|pwd| pwd.data);
         unsorted.into_iter().map(|pwd| *pwd.geom()).collect()
+    }
+
+    fn centroid(&self) -> Point3 {
+        centroid(self.rtree.iter().map(|p| p.geom()))
     }
 
     fn tangents(&self) -> Vec<Normal3> {

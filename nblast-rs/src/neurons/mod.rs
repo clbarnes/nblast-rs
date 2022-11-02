@@ -1,4 +1,4 @@
-use crate::{DistDot, Normal3, Point3, Precision, ScoreCalc};
+use crate::{centroid, DistDot, Normal3, Point3, Precision, ScoreCalc};
 
 // pub mod fnntw;
 // pub mod nabo;
@@ -18,6 +18,10 @@ pub trait Neuron {
     /// The order is not guaranteed, but is consistent with
     /// [tangents](#method.tangents).
     fn points(&self) -> Vec<Point3>;
+
+    fn centroid(&self) -> Point3 {
+        centroid(&self.points())
+    }
 
     /// Return an owned copy of the unit tangents present in the neuron.
     /// The order is not guaranteed, but is consistent with

@@ -129,6 +129,7 @@ impl NblastArena {
         normalize: bool,
         symmetry: Option<JsString>,
         use_alpha: bool,
+        max_centroid_dist: Option<Precision>,
     ) -> JsResult<JsValue> {
         let sym = parse_symmetry(symmetry)?;
         let out = convert_multi_output(self.arena.queries_targets(
@@ -138,6 +139,7 @@ impl NblastArena {
             &sym,
             use_alpha,
             None,
+            max_centroid_dist,
         ));
         Ok(serde_wasm_bindgen::to_value(&out)?)
     }
@@ -147,9 +149,16 @@ impl NblastArena {
         normalize: bool,
         symmetry: Option<JsString>,
         use_alpha: bool,
+        max_centroid_dist: Option<Precision>,
     ) -> JsResult<JsValue> {
         let sym = parse_symmetry(symmetry)?;
-        let out = convert_multi_output(self.arena.all_v_all(normalize, &sym, use_alpha, None));
+        let out = convert_multi_output(self.arena.all_v_all(
+            normalize,
+            &sym,
+            use_alpha,
+            None,
+            max_centroid_dist,
+        ));
         Ok(serde_wasm_bindgen::to_value(&out)?)
     }
 }

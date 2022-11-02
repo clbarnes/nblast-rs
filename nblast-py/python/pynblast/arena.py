@@ -122,8 +122,12 @@ class NblastArena:
         symmetry: Optional[Symmetry] = None,
         use_alpha: bool = False,
         threads: Optional[int] = -1,
+        max_centroid_dist: Optional[float] = None,
     ) -> Dict[Tuple[Idx, Idx], float]:
         """Query all combinations of some query neurons against some target neurons.
+
+        ``max_centroid_dist`` pre-filters neurons based on their centroid location:
+        if the centroids are too far apart, they will not be queried.
 
         See the ``query_target`` method for more details on
         ``normalize`` and ``symmetry``.
@@ -131,7 +135,13 @@ class NblastArena:
         """
         threads = self._parse_threads(threads)
         return self._impl.queries_targets(
-            query_idxs, target_idxs, bool(normalize), symmetry, use_alpha, threads
+            query_idxs,
+            target_idxs,
+            bool(normalize),
+            symmetry,
+            use_alpha,
+            threads,
+            max_centroid_dist,
         )
 
     def all_v_all(
@@ -140,15 +150,21 @@ class NblastArena:
         symmetry=None,
         use_alpha: bool = False,
         threads: Optional[int] = -1,
+        max_centroid_dist: Optional[float] = None,
     ) -> Dict[Tuple[Idx, Idx], float]:
         """Query all loaded neurons against each other.
+
+        ``max_centroid_dist`` pre-filters neurons based on their centroid location:
+        if the centroids are too far apart, they will not be queried.
 
         See the ``query_target`` method for more details on
         ``normalize`` and ``symmetry``.
         See the ``__init__`` method for more details on ``threads``.
         """
         threads = self._parse_threads(threads)
-        return self._impl.all_v_all(bool(normalize), symmetry, use_alpha, threads)
+        return self._impl.all_v_all(
+            bool(normalize), symmetry, use_alpha, threads, max_centroid_dist
+        )
 
     def __len__(self) -> int:
         return self._impl.len()
@@ -168,19 +184,23 @@ class NblastArena:
     def points(self, idx) -> np.ndarray:
         """Return a copy of the points associated with the indexed neuron.
 
-        Point order is arbitrary, but consistent with the order returned by the
-        ``.tangents`` method.
+        Order is arbitrary.
         """
         return np.array(raise_if_none(self._impl.points(idx), idx))
 
     def tangents(self, idx, rectify=False) -> np.ndarray:
         """Return a copy of the tangents associated with the indexed neuron.
 
-        Tangent order is arbitrary, but consistent with the order returned by the
+        Order is arbitrary, but consistent with the order returned by the
         ``.points`` method.
         """
         out = np.array(raise_if_none(self._impl.tangents(idx), idx))
         return rectify_tangents(out, True) if rectify else out
 
     def alphas(self, idx) -> np.ndarray:
+        """Return a copy of the alpha values associated with the indexed neuron.
+
+        Order is arbitrary, but consistent with the order returned by the
+        ``.points`` method.
+        """
         return np.array(raise_if_none(self._impl.alphas(idx), idx))

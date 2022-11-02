@@ -122,6 +122,7 @@ impl ArenaWrapper {
         symmetry: Option<&str>,
         use_alpha: bool,
         threads: Option<usize>,
+        max_centroid_dist: Option<Precision>,
     ) -> PyResult<HashMap<(NeuronIdx, NeuronIdx), f64>> {
         let sym = match symmetry {
             Some(s) => Some(str_to_sym(s).map_err(|_| {
@@ -139,6 +140,7 @@ impl ArenaWrapper {
             &sym,
             use_alpha,
             threads,
+            max_centroid_dist,
         ))
     }
 
@@ -149,6 +151,7 @@ impl ArenaWrapper {
         symmetry: Option<&str>,
         use_alpha: bool,
         threads: Option<usize>,
+        max_centroid_dist: Option<Precision>,
     ) -> PyResult<HashMap<(NeuronIdx, NeuronIdx), Precision>> {
         let sym = match symmetry {
             Some(s) => Some(str_to_sym(s).map_err(|_| {
@@ -156,7 +159,9 @@ impl ArenaWrapper {
             })?),
             _ => None,
         };
-        Ok(self.arena.all_v_all(normalize, &sym, use_alpha, threads))
+        Ok(self
+            .arena
+            .all_v_all(normalize, &sym, use_alpha, threads, max_centroid_dist))
     }
 
     pub fn len(&self) -> usize {

@@ -36,20 +36,23 @@ class NBlaster {
     );
   }
 
-  queriesTargets(queryIdxs, targetIdxs, normalize, symmetry, useAlpha) {
+  queriesTargets(queryIdxs, targetIdxs, normalize, symmetry, useAlpha, maxCentroidDist) {
     const sym = symmetry ? symmetry.toString() : undefined;
+    const mcd = Number(maxCentroidDist) > 0 ? Number(maxCentroidDist) : undefined;
     return this.arena.queries_targets(
       new BigUint64Array(queryIdxs),
       new BigUint64Array(targetIdxs),
       !!normalize,
       sym,
       !!useAlpha,
+      mcd,
     );
   }
 
-  allVsAll(normalize, symmetry, useAlpha) {
+  allVsAll(normalize, symmetry, useAlpha, maxCentroidDist) {
     const sym = symmetry ? symmetry.toString() : undefined;
-    return this.arena.all_v_all(!!normalize, sym, !!useAlpha);
+    const mcd = Number(maxCentroidDist) > 0 ? Number(maxCentroidDist) : undefined;
+    return this.arena.all_v_all(!!normalize, sym, !!useAlpha, mcd);
   }
 }
 
@@ -116,11 +119,12 @@ function tableFromCellMap(mom, rowNames, columnNames) {
     row.appendChild(label)
     for (const [cidx, cname] of columnNames.entries()) {
       const cell = document.createElement("td");
+      cell.innerText = "n/a";
       const inner = mom.get(ridx);
       if (inner !== undefined) {
         const val = inner.get(cidx);
         if (val !== undefined) {
-          cell.innerText = val;
+          cell.innerText = val.toFixed(3);
         }
       }
       row.appendChild(cell);
@@ -157,6 +161,7 @@ async function onButtonClick(ev) {
     document.getElementById("normalizeInput").checked,
     document.getElementById("symmetryInput").value,
     document.getElementById("alphaInput").checked,
+    document.getElementById("maxCentroidDist").value,
   );
   CACHE.result = result;
 

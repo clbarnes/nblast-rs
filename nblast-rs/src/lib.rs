@@ -83,6 +83,21 @@ pub type Point3 = [Precision; 3];
 /// 3D unit-length vector type used internally
 pub type Normal3 = Unit<Vector3<Precision>>;
 
+fn centroid<'a, T: IntoIterator<Item = &'a Point3>>(points: T) -> Point3 {
+    let mut len: f64 = 0.0;
+    let mut out = [0.0; 3];
+    for p in points {
+        len += 1.0;
+        for idx in 0..3 {
+            out[idx] += p[idx];
+        }
+    }
+    for el in &mut out {
+        *el /= len;
+    }
+    out
+}
+
 fn geometric_mean(a: Precision, b: Precision) -> Precision {
     (a.max(0.0) * b.max(0.0)).sqrt()
 }
@@ -94,6 +109,7 @@ fn harmonic_mean(a: Precision, b: Precision) -> Precision {
         2.0 / (1.0 / a + 1.0 / b)
     }
 }
+
 /// A tangent, alpha pair associated with a point.
 #[derive(Copy, Clone, Debug)]
 pub struct TangentAlpha {
@@ -286,6 +302,10 @@ impl Neuron for PointsTangentsAlphas {
         self.points.clone()
     }
 
+    fn centroid(&self) -> Point3 {
+        centroid(self.points.iter())
+    }
+
     fn tangents(&self) -> Vec<Normal3> {
         self.tangents_alphas.iter().map(|ta| ta.tangent).collect()
     }
@@ -392,14 +412,53 @@ pub fn range_table_to_fn(
     move |dd: &DistDot| -> Precision { *range_table.lookup(&[dd.dist, dd.dot]) }
 }
 
+trait Location {
+    fn location(&self) -> &Point3;
+
+    fn distance2_to<T: Location>(&self, other: T) -> Precision {
+        self.location()
+            .iter()
+            .zip(other.location().iter())
+            .map(|(a, b)| a * a + b * b)
+            .sum()
+    }
+
+    fn distance_to<T: Location>(&self, other: T) -> Precision {
+        self.distance2_to(other).sqrt()
+    }
+}
+
+impl Location for Point3 {
+    fn location(&self) -> &Point3 {
+        self
+    }
+}
+
+impl Location for &Point3 {
+    fn location(&self) -> &Point3 {
+        self
+    }
+}
+
 #[derive(Clone)]
 struct NeuronSelfHit<N: QueryNeuron> {
     neuron: N,
     self_hit: Precision,
     self_hit_alpha: Precision,
+    centroid: [Precision; 3],
 }
 
 impl<N: QueryNeuron> NeuronSelfHit<N> {
+    fn new(neuron: N, self_hit: Precision, self_hit_alpha: Precision) -> Self {
+        let centroid = neuron.centroid();
+        Self {
+            neuron,
+            self_hit,
+            self_hit_alpha,
+            centroid,
+        }
+    }
+
     fn score(&self, use_alpha: bool) -> Precision {
         if use_alpha {
             self.self_hit_alpha
@@ -454,11 +513,8 @@ where
         let idx = self.next_id();
         let self_hit = neuron.self_hit(&self.score_calc, false);
         let self_hit_alpha = neuron.self_hit(&self.score_calc, true);
-        self.neurons_scores.push(NeuronSelfHit {
-            neuron,
-            self_hit,
-            self_hit_alpha,
-        });
+        self.neurons_scores
+            .push(NeuronSelfHit::new(neuron, self_hit, self_hit_alpha));
         idx
     }
 
@@ -500,6 +556,7 @@ where
     /// [rayon::ThreadPoolBuilder::num_threads](https://docs.rs/rayon/1.3.0/rayon/struct.ThreadPoolBuilder.html#method.num_threads).
     ///
     /// See [query_target](#method.query_target) for details on `normalize` and `symmetry`.
+    #[allow(clippy::too_many_arguments)] // todo: refactor normalize/symmetry/use_alpha into separate struct
     pub fn queries_targets(
         &self,
         query_idxs: &[NeuronIdx],
@@ -508,12 +565,19 @@ where
         symmetry: &Option<Symmetry>,
         use_alpha: bool,
         threads: Option<usize>,
+        max_centroid_dist: Option<Precision>,
     ) -> HashMap<(NeuronIdx, NeuronIdx), Precision> {
         let mut out = HashMap::with_capacity(query_idxs.len() * target_idxs.len());
         let mut out_keys: HashSet<(NeuronIdx, NeuronIdx)> = HashSet::default();
         let mut jobs: HashSet<(NeuronIdx, NeuronIdx)> = HashSet::default();
         for q_idx in query_idxs {
+            if q_idx >= &self.len() {
+                continue;
+            }
             for t_idx in target_idxs {
+                if t_idx >= &self.len() {
+                    continue;
+                }
                 let key = (*q_idx, *t_idx);
                 if q_idx == t_idx {
                     if let Some(ns) = self.neurons_scores.get(*q_idx) {
@@ -521,6 +585,14 @@ where
                     };
                     continue;
                 }
+
+                if !max_centroid_dist
+                    .and_then(|d| self.centroids_within_distance(*q_idx, *t_idx, d))
+                    .expect("Already checked indices")
+                {
+                    continue;
+                }
+
                 out_keys.insert(key);
                 jobs.insert(key);
                 if symmetry.is_some() {
@@ -548,6 +620,19 @@ where
         out
     }
 
+    pub fn centroids_within_distance(
+        &self,
+        query_idx: NeuronIdx,
+        target_idx: NeuronIdx,
+        max_centroid_dist: Precision,
+    ) -> Option<bool> {
+        self.neurons_scores.get(query_idx).and_then(|q| {
+            self.neurons_scores
+                .get(target_idx)
+                .map(|t| q.centroid.distance_to(t.centroid) < max_centroid_dist)
+        })
+    }
+
     pub fn self_hit(&self, idx: NeuronIdx, use_alpha: bool) -> Option<Precision> {
         self.neurons_scores.get(idx).map(|n| n.score(use_alpha))
     }
@@ -560,9 +645,18 @@ where
         symmetry: &Option<Symmetry>,
         use_alpha: bool,
         threads: Option<usize>,
+        max_centroid_dist: Option<Precision>,
     ) -> HashMap<(NeuronIdx, NeuronIdx), Precision> {
         let idxs: Vec<NeuronIdx> = (0..self.len()).collect();
-        self.queries_targets(&idxs, &idxs, normalize, symmetry, use_alpha, threads)
+        self.queries_targets(
+            &idxs,
+            &idxs,
+            normalize,
+            symmetry,
+            use_alpha,
+            threads,
+            max_centroid_dist,
+        )
     }
 
     pub fn is_empty(&self) -> bool {
@@ -915,8 +1009,15 @@ mod test {
             arena.query_target(t_idx, q_idx, false, &Some(Symmetry::ArithmeticMean), false),
         );
 
-        let out =
-            arena.queries_targets(&[q_idx, t_idx], &[t_idx, q_idx], false, &None, false, None);
+        let out = arena.queries_targets(
+            &[q_idx, t_idx],
+            &[t_idx, q_idx],
+            false,
+            &None,
+            false,
+            None,
+            None,
+        );
         assert_eq!(out.len(), 4);
     }
 

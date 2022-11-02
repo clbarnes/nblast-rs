@@ -40,6 +40,7 @@ class ArenaWrapper:
         symmetry: Optional[str],
         use_alpha: bool,
         threads: Optional[int],
+        max_centroid_dist: Optional[float],
     ) -> dict[tuple[Idx, Idx], float]: ...
     def all_v_all(
         self,
@@ -47,6 +48,7 @@ class ArenaWrapper:
         symmetry: Optional[str],
         use_alpha: bool,
         threads: Optional[int],
+        max_centroid_dist: Optional[float],
     ) -> dict[tuple[Idx, Idx], float]: ...
     def len(self) -> int: ...
     def is_empty(self) -> bool: ...
