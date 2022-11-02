@@ -18,20 +18,20 @@ or [PyPI](https://pypi.org/project/pynblast) for the python package.
 
 Requires a recent stable [rust compiler](https://rustup.rs/).
 
-### nblast-rs
+### `nblast` rust crate
 
 In the `nblast-rs` subdirectory
 
 - Use `cargo build` / `cargo test` / `cargo bench` etc.
 
-### nblast-py
+### `pynblast` python package
 
 In the `nblast-py` subdirectory
 
 - Install the development dependencies with `pip install -r requirements.txt`
 - Compile the rust component and install locally with `maturin develop` (add `--release` for an optimised build)
 
-### nblast-js
+### `nblast_js` javascript package
 
 In the `nblast-js` subdirectory
 
