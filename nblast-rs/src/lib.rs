@@ -586,11 +586,13 @@ where
                     continue;
                 }
 
-                if !max_centroid_dist
-                    .and_then(|d| self.centroids_within_distance(*q_idx, *t_idx, d))
-                    .expect("Already checked indices")
-                {
-                    continue;
+                if let Some(d) = max_centroid_dist {
+                    if !self
+                        .centroids_within_distance(*q_idx, *t_idx, d)
+                        .expect("Already checked indices")
+                    {
+                        continue;
+                    }
                 }
 
                 out_keys.insert(key);
