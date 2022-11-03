@@ -3,11 +3,12 @@ use crate::{
     centroid, geometric_mean, DistDot, Normal3, Point3, Precision, ScoreCalc, TangentAlpha,
 };
 use rstar::{primitives::GeomWithData, PointDistance, RTree};
+use std::borrow::Borrow;
 
 type PointWithIndex = GeomWithData<Point3, usize>;
 
 fn points_to_rtree(
-    points: impl Iterator<Item = impl std::borrow::Borrow<Point3>>,
+    points: impl Iterator<Item = impl Borrow<Point3>>,
 ) -> Result<RTree<PointWithIndex>, &'static str> {
     Ok(RTree::bulk_load(
         points

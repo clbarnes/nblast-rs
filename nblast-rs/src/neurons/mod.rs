@@ -1,7 +1,7 @@
 use crate::{centroid, DistDot, Normal3, Point3, Precision, ScoreCalc};
 
 // pub mod fnntw;
-// pub mod nabo;
+pub mod nabo;
 pub mod rstar;
 
 /// Trait describing a point cloud representing a neuron.
@@ -50,7 +50,12 @@ pub trait QueryNeuron: Neuron {
         target: &impl TargetNeuron,
         use_alpha: bool,
         score_calc: &ScoreCalc,
-    ) -> Precision;
+    ) -> Precision {
+        self.query_dist_dots(target, use_alpha)
+            .iter()
+            .map(|dd| score_calc.calc(dd))
+            .sum()
+    }
 
     /// The raw NBLAST score if this neuron was compared with itself using the given score function.
     /// Used for normalisation.

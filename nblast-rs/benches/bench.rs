@@ -5,8 +5,8 @@ use bencher::{benchmark_group, benchmark_main, Bencher};
 use csv::ReaderBuilder;
 
 use nblast::{
-    NblastArena, Neuron, Point3, Precision, QueryNeuron, RStarTangentsAlphas, RangeTable,
-    ScoreCalc, TangentAlpha,
+    NaboTangentsAlphas, NblastArena, Neuron, Point3, Precision, QueryNeuron, RStarTangentsAlphas,
+    RangeTable, ScoreCalc, TangentAlpha,
 };
 
 const NAMES: [&str; 20] = [
@@ -148,7 +148,7 @@ fn get_score_fn() -> ScoreCalc {
     ScoreCalc::Table(rtable)
 }
 
-fn bench_query(b: &mut Bencher) {
+fn bench_query_rstar(b: &mut Bencher) {
     let score_fn = get_score_fn();
     let query =
         RStarTangentsAlphas::new(&read_points(NAMES[0]), N_NEIGHBORS).expect("couldn't parse");
@@ -158,12 +158,25 @@ fn bench_query(b: &mut Bencher) {
     b.iter(|| query.query(&target, false, &score_fn))
 }
 
-fn bench_rstarpt_construction(b: &mut Bencher) {
+fn bench_construction_rstar(b: &mut Bencher) {
     let points = read_points(NAMES[0]);
     b.iter(|| RStarTangentsAlphas::new(&points, N_NEIGHBORS).expect("couldn't parse"));
 }
 
-fn bench_rstarpt_construction_with_tangents(b: &mut Bencher) {
+fn bench_construction_nabo(b: &mut Bencher) {
+    let points = read_points(NAMES[0]);
+    b.iter(|| NaboTangentsAlphas::new(points.clone(), N_NEIGHBORS))
+}
+
+fn bench_query_nabo(b: &mut Bencher) {
+    let score_fn = get_score_fn();
+    let query = NaboTangentsAlphas::new(read_points(NAMES[0]), N_NEIGHBORS);
+    let target = NaboTangentsAlphas::new(read_points(NAMES[1]), N_NEIGHBORS);
+
+    b.iter(|| query.query(&target, false, &score_fn))
+}
+
+fn bench_construction_with_tangents_rstar(b: &mut Bencher) {
     let points = read_points(NAMES[0]);
     let neuron = RStarTangentsAlphas::new(&points, N_NEIGHBORS).expect("couldn't parse");
     let tangents_alphas: Vec<_> = neuron
@@ -256,7 +269,7 @@ fn bench_arena_query_norm_geom(b: &mut Bencher) {
     });
 }
 
-fn bench_all_to_all_serial(b: &mut Bencher) {
+fn bench_all_to_all_serial_rstar(b: &mut Bencher) {
     let mut arena = NblastArena::new(get_score_fn());
     let mut idxs = Vec::new();
     for name in NAMES.iter() {
@@ -266,6 +279,17 @@ fn bench_all_to_all_serial(b: &mut Bencher) {
                 RStarTangentsAlphas::new(&points, N_NEIGHBORS).expect("couldn't parse"),
             ),
         );
+    }
+
+    b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, false, None, None));
+}
+
+fn bench_all_to_all_serial_nabo(b: &mut Bencher) {
+    let mut arena = NblastArena::new(get_score_fn());
+    let mut idxs = Vec::new();
+    for name in NAMES.iter() {
+        let points = read_points(name);
+        idxs.push(arena.add_neuron(NaboTangentsAlphas::new(points, N_NEIGHBORS)));
     }
 
     b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, false, None, None));
@@ -288,10 +312,18 @@ fn bench_all_to_all_parallel(b: &mut Bencher) {
 }
 
 benchmark_group!(
-    simple,
-    bench_rstarpt_construction,
-    bench_rstarpt_construction_with_tangents,
-    bench_query,
+    impl_rstar,
+    bench_construction_rstar,
+    bench_construction_with_tangents_rstar,
+    bench_query_rstar,
+    bench_all_to_all_serial_rstar,
+);
+
+benchmark_group!(
+    impl_nabo,
+    bench_construction_nabo,
+    bench_query_nabo,
+    bench_all_to_all_serial_nabo,
 );
 
 benchmark_group!(
@@ -300,9 +332,8 @@ benchmark_group!(
     bench_arena_query_norm,
     bench_arena_query_geom,
     bench_arena_query_norm_geom,
-    bench_all_to_all_serial,
     bench_all_to_all_parallel,
     bench_arena_construction
 );
 
-benchmark_main!(simple, arena);
+benchmark_main!(impl_rstar, impl_nabo, arena);
