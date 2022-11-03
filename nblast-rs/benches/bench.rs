@@ -1,5 +1,3 @@
-#![feature(test)]
-
 use std::fs::File;
 use std::path::PathBuf;
 
@@ -7,8 +5,8 @@ use bencher::{benchmark_group, benchmark_main, Bencher};
 use csv::ReaderBuilder;
 
 use nblast::{
-    table_to_fn, DistDot, NblastArena, Neuron, Point3, Precision, QueryNeuron, RStarTangentsAlphas,
-    TangentAlpha,
+    NblastArena, Neuron, Point3, Precision, QueryNeuron, RStarTangentsAlphas, RangeTable,
+    ScoreCalc, TangentAlpha,
 };
 
 const NAMES: [&str; 20] = [
@@ -85,9 +83,9 @@ fn parse_interval(s: &str) -> (f64, f64) {
     (
         l_r.0
             .parse::<f64>()
-            .unwrap_or_else(|_| panic!(format!("lower bound not float: '{}'", l_r.0))),
+            .unwrap_or_else(|_| panic!("lower bound not float: '{}'", l_r.0)),
         r.1.parse::<f64>()
-            .unwrap_or_else(|_| panic!(format!("upper bound not float: '{}'", r.1))),
+            .unwrap_or_else(|_| panic!("upper bound not float: '{}'", r.1)),
     )
 }
 
@@ -102,7 +100,7 @@ fn read_smat() -> (Vec<Precision>, Vec<Precision>, Vec<Precision>) {
         .flexible(true)
         .from_reader(f);
 
-    let mut dot_tresholds = Vec::new();
+    let mut dot_thresholds = Vec::new();
 
     let mut results = reader.records();
     let first_row = results.next().expect("no first row").expect("bad parse");
@@ -110,30 +108,44 @@ fn read_smat() -> (Vec<Precision>, Vec<Precision>, Vec<Precision>) {
     // drop first (empty) column
     let mut first_row_iter = first_row.iter();
     first_row_iter.next();
+    let mut is_first = true;
     for dot_interval_str in first_row_iter {
         let dot_interval = parse_interval(dot_interval_str);
-        dot_tresholds.push(dot_interval.1);
+        if is_first {
+            dot_thresholds.push(dot_interval.0);
+            is_first = false;
+        }
+        dot_thresholds.push(dot_interval.1);
     }
 
     let mut dist_thresholds = Vec::new();
     let mut cells = Vec::new();
+    is_first = true;
     for result in reader.records() {
         let record = result.expect("failed record");
         let mut record_iter = record.iter();
         let dist_interval_str = record_iter.next().expect("No first item");
         let dist_interval = parse_interval(dist_interval_str);
+        if is_first {
+            dist_thresholds.push(dist_interval.0);
+            is_first = false;
+        }
         dist_thresholds.push(dist_interval.1);
 
         for cell in record_iter {
             cells.push(cell.parse::<f64>().expect("cell not float"));
         }
     }
-    (dist_thresholds, dot_tresholds, cells)
+    (dist_thresholds, dot_thresholds, cells)
 }
 
-fn get_score_fn() -> impl Fn(&DistDot) -> Precision {
+fn get_score_fn() -> ScoreCalc {
     let args = read_smat();
-    table_to_fn(args.0, args.1, args.2)
+    // table_to_fn(args.0, args.1, args.2)
+    // ScoreCalc::Table(RangeTable::new(args.0, args.1, args.2))
+    let rtable =
+        RangeTable::new_from_bins(vec![args.0, args.1], args.2).expect("Invalid score table");
+    ScoreCalc::Table(rtable)
 }
 
 fn bench_query(b: &mut Bencher) {
@@ -173,7 +185,7 @@ fn bench_arena_construction(b: &mut Bencher) {
         .map(|n| RStarTangentsAlphas::new(&read_points(n), N_NEIGHBORS).expect("couldn't parse"))
         .collect();
     b.iter(|| {
-        let mut arena = NblastArena::new(&score_fn);
+        let mut arena = NblastArena::new(score_fn.clone());
         for dp in pointtangents.iter().cloned() {
             arena.add_neuron(dp);
         }
@@ -256,7 +268,7 @@ fn bench_all_to_all_serial(b: &mut Bencher) {
         );
     }
 
-    b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, false, None));
+    b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, false, None, None));
 }
 
 #[cfg(feature = "parallel")]
@@ -272,7 +284,7 @@ fn bench_all_to_all_parallel(b: &mut Bencher) {
         );
     }
 
-    b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, false, Some(0)));
+    b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, false, Some(0), None));
 }
 
 benchmark_group!(

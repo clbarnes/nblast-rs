@@ -468,6 +468,7 @@ impl<N: QueryNeuron> NeuronSelfHit<N> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum ScoreCalc {
     // Func(Box<dyn Fn(&DistDot) -> Precision + Sync>),
     Table(RangeTable<Precision, Precision>),
