@@ -6,7 +6,7 @@ import pytest
 import pandas as pd
 import numpy as np
 
-REL_TOL = 0.025
+REL_TOL = 1e-6
 
 
 def dict_to_df(idxs_to_score, idx_to_name):
