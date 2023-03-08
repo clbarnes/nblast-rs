@@ -21,15 +21,14 @@ class NblastArena:
         score_mat: np.ndarray,
         threads: Optional[int] = DEFAULT_THREADS,
         k=DEFAULT_K,
-        use_alpha=False,
     ):
         """
         The required arguments describe a lookup table which is used to convert
         ``(distance, abs_dot_product)`` tuples into a score for a single
         point match.
-        The ``*_bins`` arguments describe the upper bounds of the bins
-        (although anything greater than the uppermost bound is considered to belong
-        to the top bin).
+        The ``*_bins`` arguments describe the bounds of the bins:
+        N bounds make for N-1 bins.
+        Queries are clamped to the domain of the lookup.
         ``score_mat`` is the table of values, in dist-major order.
 
         For example, if the lookup table was stored as a pandas dataframe,
@@ -51,7 +50,7 @@ class NblastArena:
         self.threads = threads
         self.k = k
 
-        if score_mat.shape != (len(dist_bins), len(dot_bins)):
+        if score_mat.shape != (len(dist_bins) - 1, len(dot_bins) - 1):
             raise ValueError("Bin thresholds do not match score matrix")
         score_vec = score_mat.flatten().tolist()
         self._impl = ArenaWrapper(dist_bins, dot_bins, score_vec, self.k)
@@ -122,8 +121,12 @@ class NblastArena:
         symmetry: Optional[Symmetry] = None,
         use_alpha: bool = False,
         threads: Optional[int] = -1,
+        max_centroid_dist: Optional[float] = None,
     ) -> Dict[Tuple[Idx, Idx], float]:
         """Query all combinations of some query neurons against some target neurons.
+
+        ``max_centroid_dist`` pre-filters neurons based on their centroid location:
+        if the centroids are too far apart, they will not be queried.
 
         See the ``query_target`` method for more details on
         ``normalize`` and ``symmetry``.
@@ -131,7 +134,13 @@ class NblastArena:
         """
         threads = self._parse_threads(threads)
         return self._impl.queries_targets(
-            query_idxs, target_idxs, bool(normalize), symmetry, use_alpha, threads
+            query_idxs,
+            target_idxs,
+            bool(normalize),
+            symmetry,
+            use_alpha,
+            threads,
+            max_centroid_dist,
         )
 
     def all_v_all(
@@ -140,15 +149,21 @@ class NblastArena:
         symmetry=None,
         use_alpha: bool = False,
         threads: Optional[int] = -1,
+        max_centroid_dist: Optional[float] = None,
     ) -> Dict[Tuple[Idx, Idx], float]:
         """Query all loaded neurons against each other.
+
+        ``max_centroid_dist`` pre-filters neurons based on their centroid location:
+        if the centroids are too far apart, they will not be queried.
 
         See the ``query_target`` method for more details on
         ``normalize`` and ``symmetry``.
         See the ``__init__`` method for more details on ``threads``.
         """
         threads = self._parse_threads(threads)
-        return self._impl.all_v_all(bool(normalize), symmetry, use_alpha, threads)
+        return self._impl.all_v_all(
+            bool(normalize), symmetry, use_alpha, threads, max_centroid_dist
+        )
 
     def __len__(self) -> int:
         return self._impl.len()
@@ -168,19 +183,23 @@ class NblastArena:
     def points(self, idx) -> np.ndarray:
         """Return a copy of the points associated with the indexed neuron.
 
-        Point order is arbitrary, but consistent with the order returned by the
-        ``.tangents`` method.
+        Order is arbitrary.
         """
         return np.array(raise_if_none(self._impl.points(idx), idx))
 
     def tangents(self, idx, rectify=False) -> np.ndarray:
         """Return a copy of the tangents associated with the indexed neuron.
 
-        Tangent order is arbitrary, but consistent with the order returned by the
+        Order is arbitrary, but consistent with the order returned by the
         ``.points`` method.
         """
         out = np.array(raise_if_none(self._impl.tangents(idx), idx))
         return rectify_tangents(out, True) if rectify else out
 
     def alphas(self, idx) -> np.ndarray:
+        """Return a copy of the alpha values associated with the indexed neuron.
+
+        Order is arbitrary, but consistent with the order returned by the
+        ``.points`` method.
+        """
         return np.array(raise_if_none(self._impl.alphas(idx), idx))

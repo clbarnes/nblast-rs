@@ -6,22 +6,8 @@ description = "Python bindings for nblast-rs library"
 readme = "README.rst"
 edition = "2018"
 
-# [package.metadata.maturin.scripts]
-
-[package.metadata.maturin]
-requires-dist = ["numpy"]
-classifier = [
-    'Development Status :: 2 - Pre-Alpha',
-    'Intended Audience :: Developers',
-    'License :: OSI Approved :: MIT License',
-    'Natural Language :: English',
-    'Programming Language :: Python :: 3.6',
-    'Programming Language :: Python :: 3.7',
-    'Programming Language :: Python :: 3.8',
-]
-
 [dependencies]
-pyo3 = { version = "0.8.5", features = ["extension-module"] }
+pyo3 = { version = "0.17.2", features = ["extension-module"] }
 neurarbor = "0.2.0"
 nblast = { path = "../nblast-rs", version = "^0.4.0", features = ["parallel"] }
 

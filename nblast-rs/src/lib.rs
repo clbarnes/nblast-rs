@@ -58,14 +58,26 @@
 //! a score for that point match, for convenient many-to-many comparisons.
 //! A pre-calculated table of point match scores can be converted into a function with [table_to_fn](fn.table_to_fn.html).
 use nalgebra::base::{Matrix3, Unit, Vector3};
-use rstar::primitives::PointWithData;
-use rstar::{PointDistance, RTree};
 use std::collections::{HashMap, HashSet};
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 pub use nalgebra;
+
+mod smat;
+pub use smat::ScoreMatrixBuilder;
+
+mod table_lookup;
+pub use table_lookup::{BinLookup, NdBinLookup, RangeTable};
+
+mod neurons;
+use neurons::rstar::points_to_rtree_tangents_alphas;
+pub use neurons::rstar::RStarTangentsAlphas;
+pub use neurons::{Neuron, QueryNeuron, TargetNeuron};
+
+#[cfg(feature = "nabo")]
+pub use neurons::nabo::NaboTangentsAlphas;
 
 /// Floating point precision type used internally
 pub type Precision = f64;
@@ -74,10 +86,31 @@ pub type Point3 = [Precision; 3];
 /// 3D unit-length vector type used internally
 pub type Normal3 = Unit<Vector3<Precision>>;
 
-type PointWithIndex = PointWithData<usize, Point3>;
+fn centroid<'a, T: IntoIterator<Item = &'a Point3>>(points: T) -> Point3 {
+    let mut len: f64 = 0.0;
+    let mut out = [0.0; 3];
+    for p in points {
+        len += 1.0;
+        for idx in 0..3 {
+            out[idx] += p[idx];
+        }
+    }
+    for el in &mut out {
+        *el /= len;
+    }
+    out
+}
 
 fn geometric_mean(a: Precision, b: Precision) -> Precision {
     (a.max(0.0) * b.max(0.0)).sqrt()
+}
+
+fn harmonic_mean(a: Precision, b: Precision) -> Precision {
+    if a <= 0.0 || b <= 0.0 {
+        0.0
+    } else {
+        2.0 / (1.0 / a + 1.0 / b)
+    }
 }
 
 /// A tangent, alpha pair associated with a point.
@@ -125,23 +158,21 @@ pub enum Symmetry {
     Max,
 }
 
-fn apply_symmetry(
-    symmetry: &Symmetry,
-    query_score: Precision,
-    target_score: Precision,
-) -> Precision {
-    match symmetry {
-        Symmetry::ArithmeticMean => (query_score + target_score) / 2.0,
-        Symmetry::GeometricMean => geometric_mean(query_score, target_score),
-        Symmetry::HarmonicMean => {
-            if query_score.max(0.0) * target_score.max(0.0) == 0.0 {
-                0.0
-            } else {
-                2.0 / (1.0 / query_score + 1.0 / target_score)
-            }
+impl Symmetry {
+    pub fn apply(&self, query_score: Precision, target_score: Precision) -> Precision {
+        match self {
+            Symmetry::ArithmeticMean => (query_score + target_score) / 2.0,
+            Symmetry::GeometricMean => geometric_mean(query_score, target_score),
+            Symmetry::HarmonicMean => harmonic_mean(query_score, target_score),
+            Symmetry::Min => query_score.min(target_score),
+            Symmetry::Max => query_score.max(target_score),
         }
-        Symmetry::Min => query_score.min(target_score),
-        Symmetry::Max => query_score.max(target_score),
+    }
+}
+
+impl Default for Symmetry {
+    fn default() -> Self {
+        Symmetry::GeometricMean
     }
 }
 
@@ -158,7 +189,7 @@ pub struct DistDot {
 
 impl DistDot {
     fn to_idxs(
-        &self,
+        self,
         dist_thresholds: &[Precision],
         dot_thresholds: &[Precision],
     ) -> (usize, usize) {
@@ -167,7 +198,7 @@ impl DistDot {
         (dist_bin, dot_bin)
     }
 
-    fn to_linear_idx(&self, dist_thresholds: &[Precision], dot_thresholds: &[Precision]) -> usize {
+    fn to_linear_idx(self, dist_thresholds: &[Precision], dot_thresholds: &[Precision]) -> usize {
         let (row_idx, col_idx) = self.to_idxs(dist_thresholds, dot_thresholds);
         row_idx * dot_thresholds.len() + col_idx
     }
@@ -180,55 +211,6 @@ impl Default for DistDot {
             dot: 1.0,
         }
     }
-}
-
-/// Trait describing a point cloud representing a neuron.
-pub trait Neuron {
-    /// Number of points in the neuron.
-    fn len(&self) -> usize;
-
-    /// Whether the number of points is 0.
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Return an owned copy of the points present in the neuron.
-    /// The order is not guaranteed, but is consistent with
-    /// [tangents](#method.tangents).
-    fn points(&self) -> Vec<Point3>;
-
-    /// Return an owned copy of the unit tangents present in the neuron.
-    /// The order is not guaranteed, but is consistent with
-    /// [points](#method.points).
-    fn tangents(&self) -> Vec<Normal3>;
-
-    /// Return an owned copy of the alpha values for points in the neuron.
-    /// The order is consistent with [points](#method.points)
-    /// and [tangents](#method.tangents).
-    fn alphas(&self) -> Vec<Precision>;
-}
-
-/// Trait for objects which can be used as queries
-/// (not necessarily as targets) with NBLAST.
-/// See [TargetNeuron](trait.TargetNeuron.html).
-pub trait QueryNeuron: Neuron {
-    /// Calculate the distance and (alpha-scaled) absolute dot products for point matches
-    /// between this and a target neuron.
-    fn query_dist_dots(&self, target: &impl TargetNeuron, use_alpha: bool) -> Vec<DistDot>;
-
-    /// Calculate the raw NBLAST score by comparing this neuron to
-    /// the given target neuron, using the given score function.
-    /// The score function is applied to each point match distance and summed.
-    fn query(
-        &self,
-        target: &impl TargetNeuron,
-        use_alpha: bool,
-        score_fn: &impl Fn(&DistDot) -> Precision,
-    ) -> Precision;
-
-    /// The raw NBLAST score if this neuron was compared with itself using the given score function.
-    /// Used for normalisation.
-    fn self_hit(&self, score_fn: &impl Fn(&DistDot) -> Precision, use_alpha: bool) -> Precision;
 }
 
 fn subtract_points(p1: &Point3, p2: &Point3) -> Point3 {
@@ -288,39 +270,6 @@ fn calc_inertia<'a>(points: impl Iterator<Item = &'a Point3>) -> Matrix3<Precisi
     )
 }
 
-fn points_to_rtree(
-    points: impl Iterator<Item = impl std::borrow::Borrow<Point3>>,
-) -> Result<RTree<PointWithIndex>, &'static str> {
-    Ok(RTree::bulk_load(
-        points
-            .enumerate()
-            .map(|(idx, point)| PointWithIndex::new(idx, *point.borrow()))
-            .collect(),
-    ))
-}
-
-fn points_to_rtree_tangents_alphas(
-    points: impl Iterator<Item = impl std::borrow::Borrow<Point3>> + ExactSizeIterator + Clone,
-    k: usize,
-) -> Result<(RTree<PointWithIndex>, Vec<TangentAlpha>), &'static str> {
-    if points.len() < k {
-        return Err("Too few points to generate tangents");
-    }
-    let rtree = points_to_rtree(points.clone())?;
-    let tangents_alphas = points
-        .map(|p| {
-            TangentAlpha::new_from_points(
-                rtree
-                    .nearest_neighbor_iter(p.borrow())
-                    .take(k)
-                    .map(|pwd| pwd.position()),
-            )
-        })
-        .collect();
-
-    Ok((rtree, tangents_alphas))
-}
-
 /// Minimal struct to use as the query (not the target) of an NBLAST
 /// comparison.
 /// Equivalent to "dotprops" in the reference implementation.
@@ -356,6 +305,10 @@ impl Neuron for PointsTangentsAlphas {
         self.points.clone()
     }
 
+    fn centroid(&self) -> Point3 {
+        centroid(self.points.iter())
+    }
+
     fn tangents(&self) -> Vec<Normal3> {
         self.tangents_alphas.iter().map(|ta| ta.tangent).collect()
     }
@@ -381,191 +334,35 @@ impl QueryNeuron for PointsTangentsAlphas {
         &self,
         target: &impl TargetNeuron,
         use_alpha: bool,
-        score_fn: &impl Fn(&DistDot) -> Precision,
+        score_calc: &ScoreCalc,
     ) -> Precision {
         let mut score_total: Precision = 0.0;
 
         for (q_pt, q_ta) in self.points.iter().zip(self.tangents_alphas.iter()) {
             let alpha = if use_alpha { Some(q_ta.alpha) } else { None };
-            score_total += score_fn(&target.nearest_match_dist_dot(q_pt, &q_ta.tangent, alpha));
+            score_total +=
+                score_calc.calc(&target.nearest_match_dist_dot(q_pt, &q_ta.tangent, alpha));
         }
         score_total
     }
 
-    fn self_hit(&self, score_fn: &impl Fn(&DistDot) -> Precision, use_alpha: bool) -> Precision {
+    fn self_hit(&self, score_calc: &ScoreCalc, use_alpha: bool) -> Precision {
         if use_alpha {
             self.tangents_alphas
                 .iter()
                 .map(|ta| {
-                    score_fn(&DistDot {
+                    score_calc.calc(&DistDot {
                         dist: 0.0,
                         dot: ta.alpha,
                     })
                 })
                 .fold(0.0, |total, s| total + s)
         } else {
-            score_fn(&DistDot {
+            score_calc.calc(&DistDot {
                 dist: 0.0,
                 dot: 1.0,
             }) * self.len() as Precision
         }
-    }
-}
-
-/// Trait describing a neuron which can be the target (or the query)
-/// of an NBLAST match.
-pub trait TargetNeuron: QueryNeuron {
-    /// For a given point and tangent vector,
-    /// get the distance to its nearest point in the target, and the absolute dot product
-    /// with that neighbor's tangent (i.e. absolute cosine of the angle, as they are both unit-length).
-    fn nearest_match_dist_dot(
-        &self,
-        point: &Point3,
-        tangent: &Normal3,
-        alpha: Option<Precision>,
-    ) -> DistDot;
-}
-
-/// Target neuron using an [R*-tree](https://en.wikipedia.org/wiki/R*_tree) for spatial queries.
-#[derive(Clone)]
-pub struct RStarTangentsAlphas {
-    rtree: RTree<PointWithIndex>,
-    tangents_alphas: Vec<TangentAlpha>,
-}
-
-impl RStarTangentsAlphas {
-    /// Calculate tangents from constructed R*-tree.
-    /// `k` is the number of points to calculate each tangent with.
-    pub fn new<T: std::borrow::Borrow<Point3>>(
-        points: impl IntoIterator<
-            Item = T,
-            IntoIter = impl Iterator<Item = T> + ExactSizeIterator + Clone,
-        >,
-        k: usize,
-    ) -> Result<Self, &'static str> {
-        points_to_rtree_tangents_alphas(points.into_iter(), k).map(|(rtree, tangents_alphas)| {
-            RStarTangentsAlphas {
-                rtree,
-                tangents_alphas,
-            }
-        })
-    }
-
-    /// Use pre-calculated tangents.
-    pub fn new_with_tangents_alphas<T: std::borrow::Borrow<Point3>>(
-        points: impl IntoIterator<
-            Item = T,
-            IntoIter = impl Iterator<Item = T> + ExactSizeIterator + Clone,
-        >,
-        tangents_alphas: Vec<TangentAlpha>,
-    ) -> Result<Self, &'static str> {
-        points_to_rtree(points.into_iter()).map(|rtree| RStarTangentsAlphas {
-            rtree,
-            tangents_alphas,
-        })
-    }
-}
-
-impl Neuron for RStarTangentsAlphas {
-    fn len(&self) -> usize {
-        self.tangents_alphas.len()
-    }
-
-    fn points(&self) -> Vec<Point3> {
-        let mut unsorted: Vec<&PointWithIndex> = self.rtree.iter().collect();
-        unsorted.sort_by_key(|pwd| pwd.data);
-        unsorted.into_iter().map(|pwd| *pwd.position()).collect()
-    }
-
-    fn tangents(&self) -> Vec<Normal3> {
-        self.tangents_alphas.iter().map(|ta| ta.tangent).collect()
-    }
-
-    fn alphas(&self) -> Vec<Precision> {
-        self.tangents_alphas.iter().map(|ta| ta.alpha).collect()
-    }
-}
-
-impl QueryNeuron for RStarTangentsAlphas {
-    fn query_dist_dots(&self, target: &impl TargetNeuron, use_alpha: bool) -> Vec<DistDot> {
-        self.rtree
-            .iter()
-            .map(|q_pt_idx| {
-                let tangent_alpha = self.tangents_alphas[q_pt_idx.data];
-                let alpha = if use_alpha {
-                    Some(tangent_alpha.alpha)
-                } else {
-                    None
-                };
-                target.nearest_match_dist_dot(q_pt_idx.position(), &tangent_alpha.tangent, alpha)
-            })
-            .collect()
-    }
-
-    fn query(
-        &self,
-        target: &impl TargetNeuron,
-        use_alpha: bool,
-        score_fn: &impl Fn(&DistDot) -> Precision,
-    ) -> Precision {
-        let mut score_total: Precision = 0.0;
-        for q_pt_idx in self.rtree.iter() {
-            let tangent_alpha = self.tangents_alphas[q_pt_idx.data];
-            let alpha = if use_alpha {
-                Some(tangent_alpha.alpha)
-            } else {
-                None
-            };
-            let dd =
-                target.nearest_match_dist_dot(q_pt_idx.position(), &tangent_alpha.tangent, alpha);
-            let score = score_fn(&dd);
-            score_total += score;
-        }
-        score_total
-    }
-
-    fn self_hit(&self, score_fn: &impl Fn(&DistDot) -> Precision, use_alpha: bool) -> Precision {
-        if use_alpha {
-            self.tangents_alphas
-                .iter()
-                .map(|ta| {
-                    score_fn(&DistDot {
-                        dist: 0.0,
-                        dot: ta.alpha,
-                    })
-                })
-                .fold(0.0, |total, s| total + s)
-        } else {
-            score_fn(&DistDot {
-                dist: 0.0,
-                dot: 1.0,
-            }) * self.len() as Precision
-        }
-    }
-}
-
-impl TargetNeuron for RStarTangentsAlphas {
-    fn nearest_match_dist_dot(
-        &self,
-        point: &Point3,
-        tangent: &Normal3,
-        alpha: Option<Precision>,
-    ) -> DistDot {
-        self.rtree
-            .nearest_neighbor(point)
-            .map(|element| {
-                let ta = self.tangents_alphas[element.data];
-                let raw_dot = ta.tangent.dot(tangent).abs();
-                let dot = match alpha {
-                    Some(a) => raw_dot * geometric_mean(a, ta.alpha),
-                    None => raw_dot,
-                };
-                DistDot {
-                    dist: element.distance_2(point).sqrt(),
-                    dot,
-                }
-            })
-            .expect("impossible")
     }
 }
 
@@ -612,14 +409,59 @@ pub fn table_to_fn(
     move |dd: &DistDot| -> Precision { cells[dd.to_linear_idx(&dist_thresholds, &dot_thresholds)] }
 }
 
+pub fn range_table_to_fn(
+    range_table: RangeTable<Precision, Precision>,
+) -> impl Fn(&DistDot) -> Precision {
+    move |dd: &DistDot| -> Precision { *range_table.lookup(&[dd.dist, dd.dot]) }
+}
+
+trait Location {
+    fn location(&self) -> &Point3;
+
+    fn distance2_to<T: Location>(&self, other: T) -> Precision {
+        self.location()
+            .iter()
+            .zip(other.location().iter())
+            .map(|(a, b)| a * a + b * b)
+            .sum()
+    }
+
+    fn distance_to<T: Location>(&self, other: T) -> Precision {
+        self.distance2_to(other).sqrt()
+    }
+}
+
+impl Location for Point3 {
+    fn location(&self) -> &Point3 {
+        self
+    }
+}
+
+impl Location for &Point3 {
+    fn location(&self) -> &Point3 {
+        self
+    }
+}
+
 #[derive(Clone)]
 struct NeuronSelfHit<N: QueryNeuron> {
     neuron: N,
     self_hit: Precision,
     self_hit_alpha: Precision,
+    centroid: [Precision; 3],
 }
 
 impl<N: QueryNeuron> NeuronSelfHit<N> {
+    fn new(neuron: N, self_hit: Precision, self_hit_alpha: Precision) -> Self {
+        let centroid = neuron.centroid();
+        Self {
+            neuron,
+            self_hit,
+            self_hit_alpha,
+            centroid,
+        }
+    }
+
     fn score(&self, use_alpha: bool) -> Precision {
         if use_alpha {
             self.self_hit_alpha
@@ -629,28 +471,40 @@ impl<N: QueryNeuron> NeuronSelfHit<N> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum ScoreCalc {
+    // Func(Box<dyn Fn(&DistDot) -> Precision + Sync>),
+    Table(RangeTable<Precision, Precision>),
+}
+
+impl ScoreCalc {
+    pub fn calc(&self, dist_dot: &DistDot) -> Precision {
+        match self {
+            // Self::Func(func) => func(dist_dot),
+            Self::Table(tab) => *tab.lookup(&[dist_dot.dist, dist_dot.dot]),
+        }
+    }
+}
+
 /// Struct for caching a number of neurons for multiple comparable NBLAST queries.
-#[derive(Clone)]
-pub struct NblastArena<N, F>
+pub struct NblastArena<N>
 where
     N: TargetNeuron,
-    F: Fn(&DistDot) -> Precision,
 {
     neurons_scores: Vec<NeuronSelfHit<N>>,
-    score_fn: F,
+    score_calc: ScoreCalc,
 }
 
 pub type NeuronIdx = usize;
 
-impl<N, F> NblastArena<N, F>
+impl<N> NblastArena<N>
 where
     N: TargetNeuron + Sync,
-    F: Fn(&DistDot) -> Precision + Sync,
 {
-    pub fn new(score_fn: F) -> Self {
+    pub fn new(score_calc: ScoreCalc) -> Self {
         Self {
             neurons_scores: Vec::default(),
-            score_fn,
+            score_calc,
         }
     }
 
@@ -661,13 +515,10 @@ where
     /// Returns an index which is then used to make queries.
     pub fn add_neuron(&mut self, neuron: N) -> NeuronIdx {
         let idx = self.next_id();
-        let self_hit = neuron.self_hit(&self.score_fn, false);
-        let self_hit_alpha = neuron.self_hit(&self.score_fn, true);
-        self.neurons_scores.push(NeuronSelfHit {
-            neuron,
-            self_hit,
-            self_hit_alpha,
-        });
+        let self_hit = neuron.self_hit(&self.score_calc, false);
+        let self_hit_alpha = neuron.self_hit(&self.score_calc, true);
+        self.neurons_scores
+            .push(NeuronSelfHit::new(neuron, self_hit, self_hit_alpha));
         idx
     }
 
@@ -687,17 +538,17 @@ where
         // ? consider separate methods
         let q = self.neurons_scores.get(query_idx)?;
         let t = self.neurons_scores.get(target_idx)?;
-        let mut score = q.neuron.query(&t.neuron, use_alpha, &self.score_fn);
+        let mut score = q.neuron.query(&t.neuron, use_alpha, &self.score_calc);
         if normalize {
             score /= q.score(use_alpha)
         }
         match symmetry {
             Some(s) => {
-                let mut score2 = t.neuron.query(&q.neuron, use_alpha, &self.score_fn);
+                let mut score2 = t.neuron.query(&q.neuron, use_alpha, &self.score_calc);
                 if normalize {
                     score2 /= t.score(use_alpha);
                 }
-                Some(apply_symmetry(s, score, score2))
+                Some(s.apply(score, score2))
             }
             _ => Some(score),
         }
@@ -709,6 +560,7 @@ where
     /// [rayon::ThreadPoolBuilder::num_threads](https://docs.rs/rayon/1.3.0/rayon/struct.ThreadPoolBuilder.html#method.num_threads).
     ///
     /// See [query_target](#method.query_target) for details on `normalize` and `symmetry`.
+    #[allow(clippy::too_many_arguments)] // todo: refactor normalize/symmetry/use_alpha into separate struct
     pub fn queries_targets(
         &self,
         query_idxs: &[NeuronIdx],
@@ -717,12 +569,19 @@ where
         symmetry: &Option<Symmetry>,
         use_alpha: bool,
         threads: Option<usize>,
+        max_centroid_dist: Option<Precision>,
     ) -> HashMap<(NeuronIdx, NeuronIdx), Precision> {
         let mut out = HashMap::with_capacity(query_idxs.len() * target_idxs.len());
         let mut out_keys: HashSet<(NeuronIdx, NeuronIdx)> = HashSet::default();
         let mut jobs: HashSet<(NeuronIdx, NeuronIdx)> = HashSet::default();
         for q_idx in query_idxs {
+            if q_idx >= &self.len() {
+                continue;
+            }
             for t_idx in target_idxs {
+                if t_idx >= &self.len() {
+                    continue;
+                }
                 let key = (*q_idx, *t_idx);
                 if q_idx == t_idx {
                     if let Some(ns) = self.neurons_scores.get(*q_idx) {
@@ -730,6 +589,16 @@ where
                     };
                     continue;
                 }
+
+                if let Some(d) = max_centroid_dist {
+                    if !self
+                        .centroids_within_distance(*q_idx, *t_idx, d)
+                        .expect("Already checked indices")
+                    {
+                        continue;
+                    }
+                }
+
                 out_keys.insert(key);
                 jobs.insert(key);
                 if symmetry.is_some() {
@@ -747,7 +616,7 @@ where
                     // ! this applies symmetry twice if idx is in both input and output,
                     // but it's a cheap function
                     if let Some(backward) = raw.get(&(key.1, key.0)) {
-                        out.insert(key, apply_symmetry(s, *forward, *backward));
+                        out.insert(key, s.apply(*forward, *backward));
                     }
                 } else {
                     out.insert(key, *forward);
@@ -755,6 +624,19 @@ where
             }
         }
         out
+    }
+
+    pub fn centroids_within_distance(
+        &self,
+        query_idx: NeuronIdx,
+        target_idx: NeuronIdx,
+        max_centroid_dist: Precision,
+    ) -> Option<bool> {
+        self.neurons_scores.get(query_idx).and_then(|q| {
+            self.neurons_scores
+                .get(target_idx)
+                .map(|t| q.centroid.distance_to(t.centroid) < max_centroid_dist)
+        })
     }
 
     pub fn self_hit(&self, idx: NeuronIdx, use_alpha: bool) -> Option<Precision> {
@@ -769,9 +651,18 @@ where
         symmetry: &Option<Symmetry>,
         use_alpha: bool,
         threads: Option<usize>,
+        max_centroid_dist: Option<Precision>,
     ) -> HashMap<(NeuronIdx, NeuronIdx), Precision> {
         let idxs: Vec<NeuronIdx> = (0..self.len()).collect();
-        self.queries_targets(&idxs, &idxs, normalize, symmetry, use_alpha, threads)
+        self.queries_targets(
+            &idxs,
+            &idxs,
+            normalize,
+            symmetry,
+            use_alpha,
+            threads,
+            max_centroid_dist,
+        )
     }
 
     pub fn is_empty(&self) -> bool {
@@ -796,16 +687,12 @@ where
     }
 }
 
-fn pairs_to_raw_serial<N, F>(
-    arena: &NblastArena<N, F>,
+fn pairs_to_raw_serial<N: TargetNeuron + Sync>(
+    arena: &NblastArena<N>,
     pairs: &[(NeuronIdx, NeuronIdx)],
     normalize: bool,
     use_alpha: bool,
-) -> HashMap<(NeuronIdx, NeuronIdx), Precision>
-where
-    N: TargetNeuron + Sync,
-    F: Fn(&DistDot) -> Precision + Sync,
-{
+) -> HashMap<(NeuronIdx, NeuronIdx), Precision> {
     pairs
         .iter()
         .filter_map(|(q_idx, t_idx)| {
@@ -817,32 +704,27 @@ where
 }
 
 #[cfg(not(feature = "parallel"))]
-fn pairs_to_raw<N, F>(
-    arena: &NblastArena<N, F>,
+fn pairs_to_raw<N>(
+    arena: &NblastArena<N>,
     pairs: &[(NeuronIdx, NeuronIdx)],
     normalize: bool,
     use_alpha: bool,
-    threads: Option<usize>,
+    _threads: Option<usize>,
 ) -> HashMap<(NeuronIdx, NeuronIdx), Precision>
 where
     N: TargetNeuron + Sync,
-    F: Fn(&DistDot) -> Precision + Sync,
 {
     pairs_to_raw_serial(arena, pairs, normalize, use_alpha)
 }
 
 #[cfg(feature = "parallel")]
-fn pairs_to_raw<N, F>(
-    arena: &NblastArena<N, F>,
+fn pairs_to_raw<N: TargetNeuron + Sync>(
+    arena: &NblastArena<N>,
     pairs: &[(NeuronIdx, NeuronIdx)],
     normalize: bool,
     use_alpha: bool,
     threads: Option<usize>,
-) -> HashMap<(NeuronIdx, NeuronIdx), Precision>
-where
-    N: TargetNeuron + Sync,
-    F: Fn(&DistDot) -> Precision + Sync,
-{
+) -> HashMap<(NeuronIdx, NeuronIdx), Precision> {
     if let Some(t) = threads {
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(t)
@@ -864,7 +746,7 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     use super::*;
 
     const EPSILON: Precision = 0.001;
@@ -997,7 +879,7 @@ mod tests {
     }
 
     #[test]
-    fn test_score_fn() {
+    fn test_score_calc() {
         let (dists, dots, values) = score_mat();
         let func = table_to_fn(dists, dots, values);
         assert_close(
@@ -1055,48 +937,51 @@ mod tests {
         assert_eq!(find_bin_binary(0.1, &dots), 1);
     }
 
-    #[test]
-    fn score_function() {
-        let dist_thresholds = vec![1.0, 2.0];
-        let dot_thresholds = vec![0.5, 1.0];
-        let cells = vec![1.0, 2.0, 4.0, 8.0];
+    // #[test]
+    // fn score_function() {
+    //     let dist_thresholds = vec![1.0, 2.0];
+    //     let dot_thresholds = vec![0.5, 1.0];
+    //     let cells = vec![1.0, 2.0, 4.0, 8.0];
 
-        let score_fn = table_to_fn(dist_thresholds, dot_thresholds, cells);
+    //     let score_calc = ScoreCalc::Func(Box::new(table_to_fn(dist_thresholds, dot_thresholds, cells)));
 
-        let q_points = make_points(&[0., 0., 0.], &[1.0, 0.0, 0.0], 10);
-        let query = PointsTangentsAlphas::new(q_points.clone(), N_NEIGHBORS)
-            .expect("Query construction failed");
-        let query2 = RStarTangentsAlphas::new(&q_points, N_NEIGHBORS).expect("Construction failed");
-        let target = RStarTangentsAlphas::new(
-            &make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10),
-            N_NEIGHBORS,
-        )
-        .expect("Construction failed");
+    //     let q_points = make_points(&[0., 0., 0.], &[1.0, 0.0, 0.0], 10);
+    //     let query = PointsTangentsAlphas::new(q_points.clone(), N_NEIGHBORS)
+    //         .expect("Query construction failed");
+    //     let query2 = RStarTangentsAlphas::new(&q_points, N_NEIGHBORS).expect("Construction failed");
+    //     let target = RStarTangentsAlphas::new(
+    //         &make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10),
+    //         N_NEIGHBORS,
+    //     )
+    //     .expect("Construction failed");
 
-        assert_close(
-            query.query(&target, false, &score_fn),
-            query2.query(&target, false, &score_fn),
-        );
-        assert_close(
-            query.self_hit(&score_fn, false),
-            query2.self_hit(&score_fn, false),
-        );
-        let score = query.query(&query2, false, &score_fn);
-        let self_hit = query.self_hit(&score_fn, false);
-        println!("score: {:?}, self-hit {:?}", score, self_hit);
-        assert_close(
-            query.query(&query2, false, &score_fn),
-            query.self_hit(&score_fn, false),
-        );
-    }
+    //     assert_close(
+    //         query.query(&target, false, &score_calc),
+    //         query2.query(&target, false, &score_calc),
+    //     );
+    //     assert_close(
+    //         query.self_hit(&score_calc, false),
+    //         query2.self_hit(&score_calc, false),
+    //     );
+    //     let score = query.query(&query2, false, &score_calc);
+    //     let self_hit = query.self_hit(&score_calc, false);
+    //     println!("score: {:?}, self-hit {:?}", score, self_hit);
+    //     assert_close(
+    //         query.query(&query2, false, &score_calc),
+    //         query.self_hit(&score_calc, false),
+    //     );
+    // }
 
     #[test]
     fn arena() {
-        let dist_thresholds = vec![1.0, 2.0];
-        let dot_thresholds = vec![0.5, 1.0];
+        let dist_thresholds = vec![0.0, 1.0, 2.0];
+        let dot_thresholds = vec![0.0, 0.5, 1.0];
         let cells = vec![1.0, 2.0, 4.0, 8.0];
 
-        let score_fn = table_to_fn(dist_thresholds, dot_thresholds, cells);
+        // let score_calc = ScoreCalc::Func(Box::new(table_to_fn(dist_thresholds, dot_thresholds, cells)));
+        let score_calc = ScoreCalc::Table(
+            RangeTable::new_from_bins(vec![dist_thresholds, dot_thresholds], cells).unwrap(),
+        );
 
         let query =
             RStarTangentsAlphas::new(&make_points(&[0., 0., 0.], &[1., 0., 0.], 10), N_NEIGHBORS)
@@ -1107,7 +992,7 @@ mod tests {
         )
         .expect("Construction failed");
 
-        let mut arena = NblastArena::new(score_fn);
+        let mut arena = NblastArena::new(score_calc);
         let q_idx = arena.add_neuron(query);
         let t_idx = arena.add_neuron(target);
 
@@ -1130,16 +1015,20 @@ mod tests {
             arena.query_target(t_idx, q_idx, false, &Some(Symmetry::ArithmeticMean), false),
         );
 
-        let out =
-            arena.queries_targets(&[q_idx, t_idx], &[t_idx, q_idx], false, &None, false, None);
+        let out = arena.queries_targets(
+            &[q_idx, t_idx],
+            &[t_idx, q_idx],
+            false,
+            &None,
+            false,
+            None,
+            None,
+        );
         assert_eq!(out.len(), 4);
     }
 
     fn test_symmetry(symmetry: &Symmetry, a: Precision, b: Precision) {
-        assert_close(
-            apply_symmetry(symmetry, a, b),
-            apply_symmetry(symmetry, b, a),
-        )
+        assert_close(symmetry.apply(a, b), symmetry.apply(b, a))
     }
 
     fn test_symmetry_multiple(symmetry: &Symmetry) {
@@ -1173,19 +1062,19 @@ mod tests {
         test_symmetry_multiple(&Symmetry::Max)
     }
 
-    #[test]
-    fn alpha_changes_results() {
-        let (points, _, _) = tangent_data();
-        let neuron = RStarTangentsAlphas::new(points, N_NEIGHBORS).unwrap();
-        let score_fn = |dd: &DistDot| dd.dot;
+    // #[test]
+    // fn alpha_changes_results() {
+    //     let (points, _, _) = tangent_data();
+    //     let neuron = RStarTangentsAlphas::new(points, N_NEIGHBORS).unwrap();
+    //     let score_calc = ScoreCalc::Func(Box::new(|dd: &DistDot| dd.dot));
 
-        let sh = neuron.self_hit(&score_fn, false);
-        let sh_a = neuron.self_hit(&score_fn, true);
-        assert!(!is_close(sh, sh_a));
+    //     let sh = neuron.self_hit(&score_calc, false);
+    //     let sh_a = neuron.self_hit(&score_calc, true);
+    //     assert!(!is_close(sh, sh_a));
 
-        let q = neuron.query(&neuron, false, &score_fn);
-        let q_a = neuron.query(&neuron, true, &score_fn);
+    //     let q = neuron.query(&neuron, false, &score_calc);
+    //     let q_a = neuron.query(&neuron, true, &score_calc);
 
-        assert!(!is_close(q, q_a));
-    }
+    //     assert!(!is_close(q, q_a));
+    // }
 }

@@ -3,6 +3,7 @@
 members = [
   "nblast-py",
   "nblast-rs",
+  "nblast-js",
 ]
 
 # [profile.release]

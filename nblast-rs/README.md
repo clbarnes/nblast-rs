@@ -4,3 +4,10 @@ Implementation of NBLAST for neuron morphology comparisons, originally published
 
 This package is compatible with the reference implementation, but the API is subject to change.
 
+## Benchmarking
+
+Some benchmarks use optional features, and so benchmarkers should use
+
+```sh
+cargo bench --all-features
+```

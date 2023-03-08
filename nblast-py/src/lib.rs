@@ -8,7 +8,7 @@ use neurarbor::{edges_to_tree_with_data, resample_tree_points, Location, TopoArb
 
 use nblast::nalgebra::base::{Unit, Vector3};
 use nblast::{
-    table_to_fn, DistDot, NblastArena, NeuronIdx, Precision, RStarTangentsAlphas, Symmetry,
+    NblastArena, NeuronIdx, Precision, RStarTangentsAlphas, RangeTable, ScoreCalc, Symmetry,
     TangentAlpha,
 };
 
@@ -36,8 +36,7 @@ fn str_to_sym(s: &str) -> Result<Symmetry, ()> {
 #[cfg(not(test))]
 #[pyclass]
 pub struct ArenaWrapper {
-    // TODO: can this box be avoided?
-    arena: NblastArena<RStarTangentsAlphas, Box<dyn Fn(&DistDot) -> Precision + Sync + Send>>,
+    arena: NblastArena<RStarTangentsAlphas>,
     k: usize,
 }
 
@@ -45,25 +44,25 @@ pub struct ArenaWrapper {
 #[pymethods]
 impl ArenaWrapper {
     #[new]
-    fn __new__(
-        obj: &PyRawObject,
+    pub fn __new__(
         dist_thresholds: Vec<f64>,
         dot_thresholds: Vec<f64>,
         cells: Vec<f64>,
         k: usize,
-    ) -> PyResult<()> {
-        let score_fn = table_to_fn(dist_thresholds, dot_thresholds, cells);
-        obj.init(Self {
-            arena: NblastArena::new(Box::new(score_fn)),
+    ) -> PyResult<Self> {
+        let rtable = RangeTable::new_from_bins(vec![dist_thresholds, dot_thresholds], cells)
+            .map_err(|e| PyErr::new::<exceptions::PyValueError, _>(format!("{}", e)))?;
+        let score_calc = ScoreCalc::Table(rtable);
+        Ok(Self {
+            arena: NblastArena::new(score_calc),
             k,
-        });
-        Ok(())
+        })
     }
 
     pub fn add_points(&mut self, py: Python, points: Vec<Vec<f64>>) -> PyResult<usize> {
         py.allow_threads(|| {
             let neuron = RStarTangentsAlphas::new(points.iter().map(vec_to_array3), self.k)
-                .map_err(PyErr::new::<exceptions::RuntimeError, _>)?;
+                .map_err(PyErr::new::<exceptions::PyRuntimeError, _>)?;
             Ok(self.arena.add_neuron(neuron))
         })
     }
@@ -88,7 +87,7 @@ impl ArenaWrapper {
                 points.iter().map(vec_to_array3),
                 tangents_alphas,
             )
-            .map_err(PyErr::new::<exceptions::RuntimeError, _>)?;
+            .map_err(PyErr::new::<exceptions::PyRuntimeError, _>)?;
             Ok(self.arena.add_neuron(neuron))
         })
     }
@@ -105,7 +104,7 @@ impl ArenaWrapper {
         py.allow_threads(|| {
             let sym = match symmetry {
                 Some(s) => Some(str_to_sym(s).map_err(|_| {
-                    PyErr::new::<exceptions::ValueError, _>("Symmetry type not recognised")
+                    PyErr::new::<exceptions::PyValueError, _>("Symmetry type not recognised")
                 })?),
                 _ => None,
             };
@@ -123,10 +122,14 @@ impl ArenaWrapper {
         symmetry: Option<&str>,
         use_alpha: bool,
         threads: Option<usize>,
+        max_centroid_dist: Option<Precision>,
     ) -> PyResult<HashMap<(NeuronIdx, NeuronIdx), f64>> {
         let sym = match symmetry {
             Some(s) => Some(str_to_sym(s).map_err(|_| {
-                PyErr::new::<exceptions::ValueError, _>("Symmetry type not recognised")
+                PyErr::new::<exceptions::PyValueError, _>(format!(
+                    "Symmetry type '{}' not recognised",
+                    s
+                ))
             })?),
             _ => None,
         };
@@ -137,6 +140,7 @@ impl ArenaWrapper {
             &sym,
             use_alpha,
             threads,
+            max_centroid_dist,
         ))
     }
 
@@ -147,18 +151,25 @@ impl ArenaWrapper {
         symmetry: Option<&str>,
         use_alpha: bool,
         threads: Option<usize>,
+        max_centroid_dist: Option<Precision>,
     ) -> PyResult<HashMap<(NeuronIdx, NeuronIdx), Precision>> {
         let sym = match symmetry {
             Some(s) => Some(str_to_sym(s).map_err(|_| {
-                PyErr::new::<exceptions::ValueError, _>("Symmetry type not recognised")
+                PyErr::new::<exceptions::PyValueError, _>("Symmetry type not recognised")
             })?),
             _ => None,
         };
-        Ok(self.arena.all_v_all(normalize, &sym, use_alpha, threads))
+        Ok(self
+            .arena
+            .all_v_all(normalize, &sym, use_alpha, threads, max_centroid_dist))
     }
 
-    pub fn len(&self, _py: Python) -> usize {
+    pub fn len(&self) -> usize {
         self.arena.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.arena.is_empty()
     }
 
     pub fn self_hit(&self, _py: Python, idx: NeuronIdx, use_alpha: bool) -> Option<Precision> {
@@ -198,17 +209,15 @@ struct ResamplingArbor {
 impl ResamplingArbor {
     #[new]
     fn __new__(
-        obj: &PyRawObject,
         table: Vec<(usize, Option<usize>, Precision, Precision, Precision)>,
-    ) -> PyResult<()> {
+    ) -> PyResult<Self> {
         let edges_with_data: Vec<_> = table
             .iter()
             .map(|(child, parent, x, y, z)| (*child, *parent, [*x, *y, *z]))
             .collect();
         let (tree, tnid_to_id) = edges_to_tree_with_data(&edges_with_data)
-            .map_err(|_| PyErr::new::<exceptions::ValueError, _>("Could not construct tree"))?;
-        obj.init(Self { tree, tnid_to_id });
-        Ok(())
+            .map_err(|_| PyErr::new::<exceptions::PyValueError, _>("Could not construct tree"))?;
+        Ok(Self { tree, tnid_to_id })
     }
 
     pub fn prune_at(&mut self, py: Python, ids: Vec<usize>) -> usize {
@@ -289,16 +298,17 @@ impl ResamplingArbor {
     }
 }
 
+#[pyfunction]
+fn get_version(_py: Python) -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
 #[cfg(not(test))]
 #[pymodule]
 fn pynblast(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ArenaWrapper>()?;
     m.add_class::<ResamplingArbor>()?;
-
-    #[pyfn(m, "get_version")]
-    fn get_version(_py: Python) -> String {
-        env!("CARGO_PKG_VERSION").to_string()
-    }
+    m.add_function(wrap_pyfunction!(get_version, m)?)?;
 
     Ok(())
 }

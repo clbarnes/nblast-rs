@@ -1,0 +1,77 @@
+on: [push, pull_request]
+name: "NBLAST python library"
+
+defaults:
+  run:
+    shell: bash
+    working-directory: nblast-py
+
+jobs:
+
+  lint:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v3
+        with:
+          python-version: '3.x'
+      - run: pip install $(grep -E '^(black|flake8|mypy|isort)' requirements.txt)
+      - run: make lint
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.10', '3.11']
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v1
+      - uses: actions/setup-python@v3
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/cache@v2
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+      - run: |
+          pip install -U pip wheel
+          pip install -r requirements.txt
+        name: Install dependencies
+      - run: |
+          mkdir -p $TGT_DIR
+          rm -f $TGT_DIR/*.whl
+          maturin build --release --interpreter python --out $TGT_DIR
+          pip install $TGT_DIR/*.whl
+        name: Install package
+        env:
+          TGT_DIR: "target/wheels/${{ matrix.python-version }}"
+      # change into upper directory so that pytest doesn't import locally
+      - run: cd .. && pytest --verbose
+
+  deploy:
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-22.04]
+    needs: [lint, test]
+    runs-on: ${{ matrix.os }}
+    if: github.event_name == 'push' && contains(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - uses: actions/setup-python@v3
+        with:
+          python-version: '3.10'
+      - uses: messense/maturin-action@v1
+        with:
+          manylinux: auto
+          command: publish
+          args: -u __token__ -p ${{ secrets.MATURIN_PASSWORD }} --skip-existing --universal2
+        name: Deploy wheels
