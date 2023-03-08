@@ -5,9 +5,12 @@ use bencher::{benchmark_group, benchmark_main, Bencher};
 use csv::ReaderBuilder;
 
 use nblast::{
-    NaboTangentsAlphas, NblastArena, Neuron, Point3, Precision, QueryNeuron, RStarTangentsAlphas,
+    NblastArena, Neuron, Point3, Precision, QueryNeuron, RStarTangentsAlphas,
     RangeTable, ScoreCalc, TangentAlpha,
 };
+
+#[cfg(feature = "nabo")]
+use nblast::NaboTangentsAlphas;
 
 const NAMES: [&str; 20] = [
     "ChaMARCM-F000586_seg002",
@@ -319,6 +322,7 @@ benchmark_group!(
     bench_all_to_all_serial_rstar,
 );
 
+#[cfg(feature = "nabo")]
 benchmark_group!(
     impl_nabo,
     bench_construction_nabo,

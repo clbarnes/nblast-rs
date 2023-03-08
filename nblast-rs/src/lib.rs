@@ -72,10 +72,12 @@ mod table_lookup;
 pub use table_lookup::{BinLookup, NdBinLookup, RangeTable};
 
 mod neurons;
-pub use neurons::nabo::NaboTangentsAlphas;
 use neurons::rstar::points_to_rtree_tangents_alphas;
 pub use neurons::rstar::RStarTangentsAlphas;
 pub use neurons::{Neuron, QueryNeuron, TargetNeuron};
+
+#[cfg(feature = "nabo")]
+pub use neurons::nabo::NaboTangentsAlphas;
 
 /// Floating point precision type used internally
 pub type Precision = f64;
