@@ -60,7 +60,7 @@ jobs:
         os: [macos-latest, windows-latest, ubuntu-22.04]
     needs: [lint, test]
     runs-on: ${{ matrix.os }}
-    if: github.event_name == 'push' && contains(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && contains(github.ref, 'refs/tags/py-v')
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
