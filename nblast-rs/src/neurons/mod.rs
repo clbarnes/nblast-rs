@@ -1,9 +1,9 @@
 use crate::{centroid, DistDot, Normal3, Point3, Precision, ScoreCalc};
 
 // pub mod fnntw;
-pub mod rstar;
 #[cfg(feature = "nabo")]
 pub mod nabo;
+pub mod rstar;
 
 /// Trait describing a point cloud representing a neuron.
 pub trait Neuron {

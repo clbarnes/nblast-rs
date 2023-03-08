@@ -5,8 +5,8 @@ use bencher::{benchmark_group, benchmark_main, Bencher};
 use csv::ReaderBuilder;
 
 use nblast::{
-    NblastArena, Neuron, Point3, Precision, QueryNeuron, RStarTangentsAlphas,
-    RangeTable, ScoreCalc, TangentAlpha,
+    NblastArena, Neuron, Point3, Precision, QueryNeuron, RStarTangentsAlphas, RangeTable,
+    ScoreCalc, TangentAlpha,
 };
 
 #[cfg(feature = "nabo")]

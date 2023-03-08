@@ -14,8 +14,6 @@ categories = ["algorithms", "science"]
 
 [badges]
 
-travis-ci = { repository = "https://github.com/clbarnes/nblast-rs", branch = "master" }
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
