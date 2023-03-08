@@ -18,9 +18,10 @@
 //! The dist and dot bins for the table are can be set manually or determined
 //! based on how many bins there should be, distributed logarithmically
 //! (with a given base) and linearly respectively.
-use rand::distributions::{Distribution, Uniform};
-use rand::SeedableRng;
-use rand_pcg::Pcg32;
+// use rand::distributions::{Distribution, Uniform};
+// use rand::SeedableRng;
+// use rand_pcg::Pcg32;
+use fastrand;
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 use std::collections::HashSet;
@@ -271,16 +272,17 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
             panic!("Not enough non-matching neurons")
         }
 
-        let range = Uniform::new(0, nonmatching_idxs.len());
-
-        let mut rng = Pcg32::seed_from_u64(self.seed);
+        let idx_range = ..nonmatching_idxs.len();
+        let rng = fastrand::Rng::new();
+        rng.seed(self.seed);
+        rng.usize(idx_range);
         let mut nonmatching_jobs: HashSet<(usize, usize)> = HashSet::default();
 
         // randomly pick nonmatching pairs until we have requested as many distdots
         // as we did for matching
         while matching_len > 0 {
-            let q_idx = nonmatching_idxs[range.sample(&mut rng)];
-            let t_idx = nonmatching_idxs[range.sample(&mut rng)];
+            let q_idx = nonmatching_idxs[rng.usize(idx_range)];
+            let t_idx = nonmatching_idxs[rng.usize(idx_range)];
 
             let key = (q_idx, t_idx);
             if q_idx != t_idx && !matching_jobs.contains(&key) && nonmatching_jobs.insert(key) {
