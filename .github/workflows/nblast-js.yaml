@@ -1,0 +1,35 @@
+on: [push, pull_request]
+name: "NBLAST wasm blob"
+
+defaults:
+  run:
+    shell: bash
+    working-directory: nblast-js
+
+jobs:
+
+  lint:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v1
+      - run: cargo clippy --all-features
+      - run: cargo fmt -- --check
+
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+      - uses: Swatinem/rust-cache@v1
+      - run: cargo test --all-features
+      - run: make pkg
