@@ -21,7 +21,6 @@ class NblastArena:
         score_mat: np.ndarray,
         threads: Optional[int] = DEFAULT_THREADS,
         k=DEFAULT_K,
-        use_alpha=False,
     ):
         """
         The required arguments describe a lookup table which is used to convert
