@@ -87,7 +87,6 @@ function parseSmat(str) {
 }
 
 function parseFile(file, strParser) {
-  const reader = new FileReader();
   return new Promise(function (resolve, reject) {
     const reader = new FileReader();
     reader.onload = function (ev) {
@@ -161,7 +160,7 @@ async function onButtonClick(ev) {
     document.getElementById("normalizeInput").checked,
     document.getElementById("symmetryInput").value,
     document.getElementById("alphaInput").checked,
-    document.getElementById("maxCentroidDist").value,
+    document.getElementById("maxCentroidDistInput").value,
   );
   CACHE.result = result;
 
