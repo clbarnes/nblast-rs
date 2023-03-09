@@ -88,5 +88,6 @@ def test_points_resample(resampler):
     after = resampler.points(1000)
     assert len(after) < len(before)
 
+
 def test_skeleton(resampler):
     resampler.skeleton()

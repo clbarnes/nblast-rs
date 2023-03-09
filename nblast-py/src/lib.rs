@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 use std::collections::HashMap;
 
 use neurarbor::slab_tree::{NodeId, Tree};
-use neurarbor::{edges_to_tree_with_data, resample_tree_points, Location, TopoArbor, SpatialArbor};
+use neurarbor::{edges_to_tree_with_data, resample_tree_points, Location, SpatialArbor, TopoArbor};
 
 use nblast::nalgebra::base::{Unit, Vector3};
 use nblast::{
@@ -311,7 +311,11 @@ impl ResamplingArbor {
 
     pub fn copy(&self, _py: Python) -> Self {
         // todo: this is probably inefficient. Implement clone for slab_tree::Tree?
-        let edges_with_data: Vec<_> = self.skeleton(_py).into_iter().map(|(node, parent, x, y, z)| (node, parent, [x, y, z])).collect();
+        let edges_with_data: Vec<_> = self
+            .skeleton(_py)
+            .into_iter()
+            .map(|(node, parent, x, y, z)| (node, parent, [x, y, z]))
+            .collect();
         let (tree, tnid_to_id) = edges_to_tree_with_data(&edges_with_data).unwrap();
         Self { tree, tnid_to_id }
     }
