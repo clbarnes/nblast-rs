@@ -23,3 +23,8 @@ target = "wasm32-unknown-unknown"
 
 [profile.release]
 lto = true
+
+[package.metadata.release]
+disable-publish = true
+no-dev-version = true
+tag-prefix = "js-"
