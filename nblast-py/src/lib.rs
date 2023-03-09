@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 use std::collections::HashMap;
 
 use neurarbor::slab_tree::{NodeId, Tree};
-use neurarbor::{edges_to_tree_with_data, resample_tree_points, Location, TopoArbor};
+use neurarbor::{edges_to_tree_with_data, resample_tree_points, Location, TopoArbor, SpatialArbor};
 
 use nblast::nalgebra::base::{Unit, Vector3};
 use nblast::{
@@ -252,6 +252,18 @@ impl ResamplingArbor {
         py.allow_threads(|| self.tree.prune_beyond_steps(threshold).len())
     }
 
+    pub fn prune_twigs(&mut self, py: Python, threshold: Precision) -> usize {
+        py.allow_threads(|| self.tree.prune_twigs(threshold).len())
+    }
+
+    pub fn prune_beyond_distance(&mut self, py: Python, threshold: Precision) -> usize {
+        py.allow_threads(|| self.tree.prune_beyond_distance(threshold).len())
+    }
+
+    pub fn cable_length(&mut self, py: Python) -> Precision {
+        py.allow_threads(|| self.tree.cable_length())
+    }
+
     pub fn points(&self, py: Python, resample: Option<Precision>) -> Vec<Vec<Precision>> {
         py.allow_threads(|| {
             if let Some(len) = resample {
@@ -295,6 +307,13 @@ impl ResamplingArbor {
 
     pub fn root(&self, _py: Python) -> usize {
         self.tree.root().unwrap().data().0
+    }
+
+    pub fn copy(&self, _py: Python) -> Self {
+        // todo: this is probably inefficient. Implement clone for slab_tree::Tree?
+        let edges_with_data: Vec<_> = self.skeleton(_py).into_iter().map(|(node, parent, x, y, z)| (node, parent, [x, y, z])).collect();
+        let (tree, tnid_to_id) = edges_to_tree_with_data(&edges_with_data).unwrap();
+        Self { tree, tnid_to_id }
     }
 }
 

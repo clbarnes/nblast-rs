@@ -59,6 +59,26 @@ def test_prune_beyond_branches(resampler):
         resampler.prune_beyond_branches(3)
 
 
+def test_prune_twigs(resampler):
+    with assert_removes_nodes(resampler):
+        resampler.prune_twigs(5000)
+
+
+def test_prune_beyond_distance(resampler):
+    with assert_removes_nodes(resampler):
+        resampler.prune_beyond_distance(10_000)
+
+
+def test_cable_length(resampler):
+    # todo: actually check length
+    assert resampler.cable_length()
+
+
+def test_copy(resampler):
+    cp = resampler.copy()
+    assert resampler.skeleton() == cp.skeleton()
+
+
 def test_points(resampler):
     resampler.points()
 
@@ -67,7 +87,6 @@ def test_points_resample(resampler):
     before = resampler.points()
     after = resampler.points(1000)
     assert len(after) < len(before)
-
 
 def test_skeleton(resampler):
     resampler.skeleton()
