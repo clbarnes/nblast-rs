@@ -58,6 +58,7 @@
 //! a score for that point match, for convenient many-to-many comparisons.
 //! A pre-calculated table of point match scores can be converted into a function with [table_to_fn](fn.table_to_fn.html).
 use nalgebra::base::{Matrix3, Unit, Vector3};
+use uuid::Uuid;
 use std::collections::{HashMap, HashSet};
 
 #[cfg(feature = "parallel")]
@@ -491,11 +492,11 @@ pub struct NblastArena<N>
 where
     N: TargetNeuron,
 {
-    neurons_scores: Vec<NeuronSelfHit<N>>,
+    neurons_scores: HashMap<Uuid, NeuronSelfHit<N>>,
     score_calc: ScoreCalc,
 }
 
-pub type NeuronIdx = usize;
+pub type NeuronIdx = Uuid;
 
 impl<N> NblastArena<N>
 where
@@ -503,13 +504,18 @@ where
 {
     pub fn new(score_calc: ScoreCalc) -> Self {
         Self {
-            neurons_scores: Vec::default(),
+            neurons_scores: HashMap::default(),
             score_calc,
         }
     }
 
-    fn next_id(&self) -> NeuronIdx {
-        self.neurons_scores.len()
+    fn next_id(&mut self) -> NeuronIdx {
+        // &mut ensures no data races before add_neuron finishes
+        let mut idx = Uuid::new_v4();
+        while self.neurons_scores.contains_key(&idx) {
+            idx = Uuid::new_v4();
+        }
+        idx
     }
 
     /// Returns an index which is then used to make queries.
@@ -517,8 +523,8 @@ where
         let idx = self.next_id();
         let self_hit = neuron.self_hit(&self.score_calc, false);
         let self_hit_alpha = neuron.self_hit(&self.score_calc, true);
-        self.neurons_scores
-            .push(NeuronSelfHit::new(neuron, self_hit, self_hit_alpha));
+        // todo: panic if already exists? Should be checked for in next_id
+        self.neurons_scores.insert(idx, NeuronSelfHit::new(neuron, self_hit, self_hit_alpha));
         idx
     }
 
@@ -529,15 +535,15 @@ where
     /// that the query is symmetric/ commutative.
     pub fn query_target(
         &self,
-        query_idx: NeuronIdx,
-        target_idx: NeuronIdx,
+        query_idx: &NeuronIdx,
+        target_idx: &NeuronIdx,
         normalize: bool,
         symmetry: &Option<Symmetry>,
         use_alpha: bool,
     ) -> Option<Precision> {
         // ? consider separate methods
-        let q = self.neurons_scores.get(query_idx)?;
-        let t = self.neurons_scores.get(target_idx)?;
+        let q = self.neurons_scores.get(&query_idx)?;
+        let t = self.neurons_scores.get(&target_idx)?;
         let mut score = q.neuron.query(&t.neuron, use_alpha, &self.score_calc);
         if normalize {
             score /= q.score(use_alpha)
@@ -575,16 +581,16 @@ where
         let mut out_keys: HashSet<(NeuronIdx, NeuronIdx)> = HashSet::default();
         let mut jobs: HashSet<(NeuronIdx, NeuronIdx)> = HashSet::default();
         for q_idx in query_idxs {
-            if q_idx >= &self.len() {
+            if !self.neurons_scores.contains_key(&q_idx) {
                 continue;
             }
             for t_idx in target_idxs {
-                if t_idx >= &self.len() {
+                if !self.neurons_scores.contains_key(&t_idx) {
                     continue;
                 }
                 let key = (*q_idx, *t_idx);
                 if q_idx == t_idx {
-                    if let Some(ns) = self.neurons_scores.get(*q_idx) {
+                    if let Some(ns) = self.neurons_scores.get(q_idx) {
                         out.insert(key, if normalize { 1.0 } else { ns.score(use_alpha) });
                     };
                     continue;
@@ -592,7 +598,7 @@ where
 
                 if let Some(d) = max_centroid_dist {
                     if !self
-                        .centroids_within_distance(*q_idx, *t_idx, d)
+                        .centroids_within_distance(q_idx, t_idx, d)
                         .expect("Already checked indices")
                     {
                         continue;
@@ -628,19 +634,19 @@ where
 
     pub fn centroids_within_distance(
         &self,
-        query_idx: NeuronIdx,
-        target_idx: NeuronIdx,
+        query_idx: &NeuronIdx,
+        target_idx: &NeuronIdx,
         max_centroid_dist: Precision,
     ) -> Option<bool> {
-        self.neurons_scores.get(query_idx).and_then(|q| {
+        self.neurons_scores.get(&query_idx).and_then(|q| {
             self.neurons_scores
-                .get(target_idx)
+                .get(&target_idx)
                 .map(|t| q.centroid.distance_to(t.centroid) < max_centroid_dist)
         })
     }
 
     pub fn self_hit(&self, idx: NeuronIdx, use_alpha: bool) -> Option<Precision> {
-        self.neurons_scores.get(idx).map(|n| n.score(use_alpha))
+        self.neurons_scores.get(&idx).map(|n| n.score(use_alpha))
     }
 
     /// Query every neuron against every other neuron.
@@ -653,7 +659,7 @@ where
         threads: Option<usize>,
         max_centroid_dist: Option<Precision>,
     ) -> HashMap<(NeuronIdx, NeuronIdx), Precision> {
-        let idxs: Vec<NeuronIdx> = (0..self.len()).collect();
+        let idxs: Vec<NeuronIdx> = self.neurons_scores.keys().cloned().collect();
         self.queries_targets(
             &idxs,
             &idxs,
@@ -674,15 +680,15 @@ where
         self.neurons_scores.len()
     }
 
-    pub fn points(&self, idx: NeuronIdx) -> Option<Vec<Point3>> {
+    pub fn points(&self, idx: &NeuronIdx) -> Option<Vec<Point3>> {
         self.neurons_scores.get(idx).map(|n| n.neuron.points())
     }
 
-    pub fn tangents(&self, idx: NeuronIdx) -> Option<Vec<Normal3>> {
+    pub fn tangents(&self, idx: &NeuronIdx) -> Option<Vec<Normal3>> {
         self.neurons_scores.get(idx).map(|n| n.neuron.tangents())
     }
 
-    pub fn alphas(&self, idx: NeuronIdx) -> Option<Vec<Precision>> {
+    pub fn alphas(&self, idx: &NeuronIdx) -> Option<Vec<Precision>> {
         self.neurons_scores.get(idx).map(|n| n.neuron.alphas())
     }
 }
@@ -697,7 +703,7 @@ fn pairs_to_raw_serial<N: TargetNeuron + Sync>(
         .iter()
         .filter_map(|(q_idx, t_idx)| {
             arena
-                .query_target(*q_idx, *t_idx, normalize, &None, use_alpha)
+                .query_target(q_idx, t_idx, normalize, &None, use_alpha)
                 .map(|s| ((*q_idx, *t_idx), s))
         })
         .collect()
@@ -735,7 +741,7 @@ fn pairs_to_raw<N: TargetNeuron + Sync>(
                 .par_iter()
                 .filter_map(|(q_idx, t_idx)| {
                     arena
-                        .query_target(*q_idx, *t_idx, normalize, &None, use_alpha)
+                        .query_target(q_idx, t_idx, normalize, &None, use_alpha)
                         .map(|s| ((*q_idx, *t_idx), s))
                 })
                 .collect()
@@ -997,22 +1003,22 @@ mod test {
         let t_idx = arena.add_neuron(target);
 
         let no_norm = arena
-            .query_target(q_idx, t_idx, false, &None, false)
+            .query_target(&q_idx, &t_idx, false, &None, false)
             .expect("should exist");
         let self_hit = arena
-            .query_target(q_idx, q_idx, false, &None, false)
+            .query_target(&q_idx, &q_idx, false, &None, false)
             .expect("should exist");
 
         assert!(
             arena
-                .query_target(q_idx, t_idx, true, &None, false)
+                .query_target(&q_idx, &t_idx, true, &None, false)
                 .expect("should exist")
                 - no_norm / self_hit
                 < EPSILON
         );
         assert_eq!(
-            arena.query_target(q_idx, t_idx, false, &Some(Symmetry::ArithmeticMean), false),
-            arena.query_target(t_idx, q_idx, false, &Some(Symmetry::ArithmeticMean), false),
+            arena.query_target(&q_idx, &t_idx, false, &Some(Symmetry::ArithmeticMean), false),
+            arena.query_target(&t_idx, &q_idx, false, &Some(Symmetry::ArithmeticMean), false),
         );
 
         let out = arena.queries_targets(
