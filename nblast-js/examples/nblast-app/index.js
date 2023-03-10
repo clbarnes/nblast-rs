@@ -1,4 +1,3 @@
-
 import init, { NblastArena } from "./node_modules/nblast-js/nblast_js.js";
 
 const CACHE = {};
@@ -9,7 +8,7 @@ class NBlaster {
       new Float64Array(distThresholds),
       new Float64Array(dotThresholds),
       new Float64Array(cells),
-      Math.round(k),
+      Math.round(k)
     );
   }
 
@@ -21,8 +20,8 @@ class NBlaster {
     return this.arena.add_points_tangents_alphas(
       new Float64Array(points.flat()),
       new Float64Array(tangents.flat()),
-      new Float64Array(alphas),
-    )
+      new Float64Array(alphas)
+    );
   }
 
   queryTarget(queryIdx, targetIdx, normalize, symmetry, useAlpha) {
@@ -32,49 +31,62 @@ class NBlaster {
       Math.round(targetIdx),
       !!normalize,
       sym,
-      !!useAlpha,
+      !!useAlpha
     );
   }
 
-  queriesTargets(queryIdxs, targetIdxs, normalize, symmetry, useAlpha, maxCentroidDist) {
+  queriesTargets(
+    queryIdxs,
+    targetIdxs,
+    normalize,
+    symmetry,
+    useAlpha,
+    maxCentroidDist
+  ) {
     const sym = symmetry ? symmetry.toString() : undefined;
-    const mcd = Number(maxCentroidDist) > 0 ? Number(maxCentroidDist) : undefined;
+    const mcd =
+      Number(maxCentroidDist) > 0 ? Number(maxCentroidDist) : undefined;
     return this.arena.queries_targets(
       new BigUint64Array(queryIdxs),
       new BigUint64Array(targetIdxs),
       !!normalize,
       sym,
       !!useAlpha,
-      mcd,
+      mcd
     );
   }
 
   allVsAll(normalize, symmetry, useAlpha, maxCentroidDist) {
     const sym = symmetry ? symmetry.toString() : undefined;
-    const mcd = Number(maxCentroidDist) > 0 ? Number(maxCentroidDist) : undefined;
+    const mcd =
+      Number(maxCentroidDist) > 0 ? Number(maxCentroidDist) : undefined;
     return this.arena.all_v_all(!!normalize, sym, !!useAlpha, mcd);
   }
 }
 
 function parsePoints(str) {
-  const points = str.split("\n")
+  const points = str
+    .split("\n")
     .slice(1)
     .map((r) => r.split(",").slice(1).map(parseFloat));
   return points;
 }
 
 function parseSmat(str) {
-  const rows = str.split("\n").filter((r) => !!r.trim()).map((r) => r.split(","));
+  const rows = str
+    .split("\n")
+    .filter((r) => !!r.trim())
+    .map((r) => r.split(","));
   const dotBoundaries = [0];
   for (let idx = 2; idx < rows[0].length; idx += 2) {
-    dotBoundaries.push(parseFloat(rows[0][idx].slice(0, -2)))
+    dotBoundaries.push(parseFloat(rows[0][idx].slice(0, -2)));
   }
 
   const distBoundaries = [0];
   const values = [];
   for (const row of rows.slice(1)) {
     if (!row.length) {
-      continue
+      continue;
     }
     distBoundaries.push(parseFloat(row[1].slice(0, -2)));
     row.slice(2).forEach((el) => values.push(parseFloat(el)));
@@ -83,7 +95,7 @@ function parseSmat(str) {
     distThresholds: distBoundaries,
     dotThresholds: dotBoundaries,
     cells: values,
-  }
+  };
 }
 
 function parseFile(file, strParser) {
@@ -115,7 +127,7 @@ function tableFromCellMap(mom, rowNames, columnNames) {
     const row = document.createElement("tr");
     const label = document.createElement("td");
     label.innerText = rname;
-    row.appendChild(label)
+    row.appendChild(label);
     for (const [cidx, cname] of columnNames.entries()) {
       const cell = document.createElement("td");
       cell.innerText = "n/a";
@@ -136,12 +148,12 @@ function tableFromCellMap(mom, rowNames, columnNames) {
 async function onButtonClick(ev) {
   const progress = document.getElementById("progress");
   progress.hidden = false;
-  progress.innerText = "Creating NBlaster..."
+  progress.innerText = "Creating NBlaster...";
   const arena = new NBlaster(
     CACHE.smatArgs.distThresholds,
     CACHE.smatArgs.dotThresholds,
     CACHE.smatArgs.cells,
-    parseInt(document.getElementById("kInput").value),
+    parseInt(document.getElementById("kInput").value)
   );
 
   CACHE.idxs = [];
@@ -160,7 +172,7 @@ async function onButtonClick(ev) {
     document.getElementById("normalizeInput").checked,
     document.getElementById("symmetryInput").value,
     document.getElementById("alphaInput").checked,
-    document.getElementById("maxCentroidDistInput").value,
+    document.getElementById("maxCentroidDistInput").value
   );
   CACHE.result = result;
 
@@ -198,7 +210,7 @@ async function onCsvChange(ev) {
     idx++;
   }
   console.log("points parsed");
-  progress.innerText = "Points parsed"
+  progress.innerText = "Points parsed";
 
   document.getElementById("button").disabled = false;
 }
@@ -210,8 +222,8 @@ async function onSmatChange(ev) {
 }
 
 function onClearClick(ev) {
-  console.log("clearing")
-  Object.keys(CACHE).forEach(key => delete CACHE[key]);
+  console.log("clearing");
+  Object.keys(CACHE).forEach((key) => delete CACHE[key]);
   document.getElementById("smatInput").value = null;
   const csvInput = document.getElementById("csvInput");
   csvInput.value = null;
@@ -228,7 +240,7 @@ function onClearClick(ev) {
 }
 
 init().then(() => {
-  let smatInput = document.getElementById("smatInput")
+  let smatInput = document.getElementById("smatInput");
   smatInput.onchange = onSmatChange;
 
   const csvInput = document.getElementById("csvInput");
