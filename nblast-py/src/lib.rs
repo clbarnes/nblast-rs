@@ -327,6 +327,7 @@ fn get_version(_py: Python) -> String {
 }
 
 #[cfg(not(test))]
+#[allow(dead_code)]
 #[pymodule]
 fn pynblast(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ArenaWrapper>()?;

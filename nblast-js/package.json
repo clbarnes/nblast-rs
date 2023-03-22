@@ -1,0 +1,30 @@
+{
+  "name": "nblast",
+  "version": "0.1.0",
+  "description": "NBLAST as wasm wrapped in a webworker",
+  "module": "./nblast.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "rm": "rimraf dist pkg",
+    "build": "rimraf dist pkg && webpack --mode=production",
+    "build:dev": "rimraf dist pkg && webpack --mode=development",
+    "build:prod": "rimraf dist pkg && webpack --mode=production",
+    "watch": "rimraf dist pkg && webpack --watch",
+    "serve": "rimraf dist pkg && webpack serve"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@wasm-tool/wasm-pack-plugin": "^1.3.3",
+    "@webpack-cli/generators": "^2.0.0",
+    "html-webpack-plugin": "^5.3.1",
+    "rimraf": "^2.7.1",
+    "webpack": "^5.30.0",
+    "webpack-cli": "^4.6.0",
+    "webpack-dev-server": "^3.11.2"
+  },
+  "dependencies": {
+    "comlink": "^4.3.0"
+  }
+}

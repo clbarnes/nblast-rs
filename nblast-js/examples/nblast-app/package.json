@@ -9,7 +9,7 @@
   "author": "Chris L. Barnes",
   "license": "MIT",
   "dependencies": {
-    "nblast-js": "file:../../pkg"
+    "nblast": "file:../../dist"
   },
   "devDependencies": {
     "jshint": "^2.13.6",

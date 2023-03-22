@@ -1,11 +1,11 @@
 use std::fmt::Display;
 use std::{collections::HashMap, error::Error};
 
-use js_sys::JsString;
+use js_sys::{JsString, Float64Array};
 use nblast::Precision;
 use nblast::{
     nalgebra::{Unit, Vector3},
-    NeuronIdx, RStarTangentsAlphas, RangeTable, ScoreCalc, Symmetry, TangentAlpha,
+    NeuronIdx, RStarTangentsAlphas, RangeTable, ScoreCalc, Symmetry, TangentAlpha, Neuron,
 };
 use wasm_bindgen::prelude::*;
 
@@ -161,4 +161,15 @@ impl NblastArena {
         ));
         Ok(serde_wasm_bindgen::to_value(&out)?)
     }
+}
+
+#[wasm_bindgen]
+pub fn make_flat_tangents_alphas(flat_points: &[f64], k: usize) -> JsResult<Float64Array> {
+    let points = flat_to_array3(flat_points);
+    let neuron = RStarTangentsAlphas::new(points, k).map_err(JsError::new)?;
+    let out = Float64Array::new_with_length(neuron.len() as u32);
+    for (idx, val) in neuron.tangents().into_iter().map(|n| [n[0], n[1], n[2]]).flatten().chain(neuron.alphas().into_iter()).enumerate() {
+        out.set_index(idx as u32, val);
+    }
+    Ok(out)
 }

@@ -1,68 +1,68 @@
-import init, { NblastArena } from "./node_modules/nblast-js/nblast_js.js";
+import * as getNblast from "./node_modules/nblast/main.js";
 
 const CACHE = {};
 
-class NBlaster {
-  constructor(distThresholds, dotThresholds, cells, k) {
-    this.arena = new NblastArena(
-      new Float64Array(distThresholds),
-      new Float64Array(dotThresholds),
-      new Float64Array(cells),
-      Math.round(k)
-    );
-  }
+// class NBlaster {
+//   constructor(distThresholds, dotThresholds, cells, k) {
+//     this.arena = new NblastArena(
+//       new Float64Array(distThresholds),
+//       new Float64Array(dotThresholds),
+//       new Float64Array(cells),
+//       Math.round(k)
+//     );
+//   }
 
-  addPoints(points) {
-    return this.arena.add_points(new Float64Array(points.flat()));
-  }
+//   addPoints(points) {
+//     return this.arena.add_points(new Float64Array(points.flat()));
+//   }
 
-  addPointsTangentsAlphas(points, tangents, alphas) {
-    return this.arena.add_points_tangents_alphas(
-      new Float64Array(points.flat()),
-      new Float64Array(tangents.flat()),
-      new Float64Array(alphas)
-    );
-  }
+//   addPointsTangentsAlphas(points, tangents, alphas) {
+//     return this.arena.add_points_tangents_alphas(
+//       new Float64Array(points.flat()),
+//       new Float64Array(tangents.flat()),
+//       new Float64Array(alphas)
+//     );
+//   }
 
-  queryTarget(queryIdx, targetIdx, normalize, symmetry, useAlpha) {
-    const sym = symmetry ? symmetry.toString() : undefined;
-    return this.arena.query_target(
-      Math.round(queryIdx),
-      Math.round(targetIdx),
-      !!normalize,
-      sym,
-      !!useAlpha
-    );
-  }
+//   queryTarget(queryIdx, targetIdx, normalize, symmetry, useAlpha) {
+//     const sym = symmetry ? symmetry.toString() : undefined;
+//     return this.arena.query_target(
+//       Math.round(queryIdx),
+//       Math.round(targetIdx),
+//       !!normalize,
+//       sym,
+//       !!useAlpha
+//     );
+//   }
 
-  queriesTargets(
-    queryIdxs,
-    targetIdxs,
-    normalize,
-    symmetry,
-    useAlpha,
-    maxCentroidDist
-  ) {
-    const sym = symmetry ? symmetry.toString() : undefined;
-    const mcd =
-      Number(maxCentroidDist) > 0 ? Number(maxCentroidDist) : undefined;
-    return this.arena.queries_targets(
-      new BigUint64Array(queryIdxs),
-      new BigUint64Array(targetIdxs),
-      !!normalize,
-      sym,
-      !!useAlpha,
-      mcd
-    );
-  }
+//   queriesTargets(
+//     queryIdxs,
+//     targetIdxs,
+//     normalize,
+//     symmetry,
+//     useAlpha,
+//     maxCentroidDist
+//   ) {
+//     const sym = symmetry ? symmetry.toString() : undefined;
+//     const mcd =
+//       Number(maxCentroidDist) > 0 ? Number(maxCentroidDist) : undefined;
+//     return this.arena.queries_targets(
+//       new BigUint64Array(queryIdxs),
+//       new BigUint64Array(targetIdxs),
+//       !!normalize,
+//       sym,
+//       !!useAlpha,
+//       mcd
+//     );
+//   }
 
-  allVsAll(normalize, symmetry, useAlpha, maxCentroidDist) {
-    const sym = symmetry ? symmetry.toString() : undefined;
-    const mcd =
-      Number(maxCentroidDist) > 0 ? Number(maxCentroidDist) : undefined;
-    return this.arena.all_v_all(!!normalize, sym, !!useAlpha, mcd);
-  }
-}
+//   allVsAll(normalize, symmetry, useAlpha, maxCentroidDist) {
+//     const sym = symmetry ? symmetry.toString() : undefined;
+//     const mcd =
+//       Number(maxCentroidDist) > 0 ? Number(maxCentroidDist) : undefined;
+//     return this.arena.all_v_all(!!normalize, sym, !!useAlpha, mcd);
+//   }
+// }
 
 function parsePoints(str) {
   const points = str
@@ -149,26 +149,29 @@ async function onButtonClick(ev) {
   const progress = document.getElementById("progress");
   progress.hidden = false;
   progress.innerText = "Creating NBlaster...";
-  const arena = new NBlaster(
+  const lib = await getNblast();
+  const arena = new lib.Nblaster(
     CACHE.smatArgs.distThresholds,
     CACHE.smatArgs.dotThresholds,
     CACHE.smatArgs.cells,
     parseInt(document.getElementById("kInput").value)
   );
+  await arena.init();
 
   CACHE.idxs = [];
   let idx = 0;
   console.log("creating dotprops");
   for (let p of CACHE.points) {
     progress.innerText = "Creating dotprops for cloud " + idx;
-    CACHE.idxs.push(arena.addPoints(p));
+    let nIdx = await arena.addPoints(p);
+    CACHE.idxs.push(nIdx);
     console.log("dotprops created for " + idx);
     idx++;
   }
 
   console.log("running nblast");
   progress.innerText = `Running NBLAST query for ${idx}x${idx}`;
-  const result = arena.allVsAll(
+  const result = await arena.allVsAll(
     document.getElementById("normalizeInput").checked,
     document.getElementById("symmetryInput").value,
     document.getElementById("alphaInput").checked,
@@ -239,7 +242,7 @@ function onClearClick(ev) {
   }
 }
 
-init().then(() => {
+window.addEventListener('DOMContentLoaded',function () {
   let smatInput = document.getElementById("smatInput");
   smatInput.onchange = onSmatChange;
 
