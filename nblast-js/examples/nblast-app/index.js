@@ -2,31 +2,59 @@ import init, { NblastArena } from "./node_modules/nblast-js/nblast_js.js";
 
 const CACHE = {};
 
-class NBlaster {
+/**
+ * Class containing NBLASTable neurons and a score matrix.
+ *
+ * After instantiation, must call the async init() method.
+ */
+export class Nblaster {
   constructor(distThresholds, dotThresholds, cells, k) {
     this.arena = new NblastArena(
-      new Float64Array(distThresholds),
-      new Float64Array(dotThresholds),
-      new Float64Array(cells),
+      flatArray64(distThresholds),
+      flatArray64(dotThresholds),
+      flatArray64(cells),
       Math.round(k)
+    )
+  }
+
+  /**
+   * Add a point cloud to the arena.
+   * Points and tangents can be given as an array of 3-arrays of numbers, or a flattened row-major Float64Array (used internally).
+   *
+   * @param {*} points - coordinates of point cloud as array of 3-arrays of numbers, or a flattened row-major Float64Array.
+   * @param {*} [tangents] - calculated from points if not given.
+   * @param {*} [alphas] - calculated from points if not given.
+   * @returns {number} - Index of this point cloud; used for queries later.
+   */
+  addNeuron(points, tangents, alphas) {
+    let pointsFlat = flatArray64(points);
+
+    if (tangents == null) {
+      return this.arena.add_points(pointsFlat);
+    }
+    let tangentsFlat = flatArray64(points);
+    let alphasFlat = flatArray64(alphas, points.length, 1);
+
+    return this.arena.add_points_tangents_alphas(
+      pointsFlat,
+      tangentsFlat,
+      alphasFlat
     );
   }
 
-  addPoints(points) {
-    return this.arena.addPoints(new Float64Array(points.flat()));
-  }
-
-  addPointsTangentsAlphas(points, tangents, alphas) {
-    return this.arena.addPointsTangentsAlphas(
-      new Float64Array(points.flat()),
-      new Float64Array(tangents.flat()),
-      new Float64Array(alphas)
-    );
-  }
-
+  /**
+   * NBLAST two point clouds against each other.
+   *
+   * @param {number} queryIdx - Query neuron index
+   * @param {number} targetIdx - Target neuron index
+   * @param {boolean} [normalize=false] - whether to normalise against self-hit score
+   * @param {string|null} [symmetry=undefined] - whether and how to combine with the reverse score. Should be "arithmetic_mean", "geometric_mean", "harmonic_mean", "min", "max", or undefined (do not use reverse score).
+   * @param {boolean} [useAlpha=false] - whether to scale dotprops by colinearity values.
+   * @returns {number} - NBLAST score
+   */
   queryTarget(queryIdx, targetIdx, normalize, symmetry, useAlpha) {
     const sym = symmetry ? symmetry.toString() : undefined;
-    return this.arena.queryTarget(
+    return this.arena.query_target(
       Math.round(queryIdx),
       Math.round(targetIdx),
       !!normalize,
@@ -35,6 +63,17 @@ class NBlaster {
     );
   }
 
+  /**
+   * NBLAST multiple point clouds against each other (as a cartesian product).
+   *
+   * @param {number[]} queryIdxs - Query neuron indices
+   * @param {number[]} targetIdxs - Target neuron indices
+   * @param {boolean} [normalize=false] - whether to normalise against self-hit score
+   * @param {string|null} [symmetry] - whether and how to combine with the reverse score. Should be "arithmetic_mean", "geometric_mean", "harmonic_mean", "min", "max", or undefined (do not use reverse score).
+   * @param {boolean} [useAlpha=false] - whether to scale dotprops by colinearity values.
+   * @param {number} [maxCentroidDist] - skip query if point clouds' centroids are further than this distance; if not given, run all queries.
+   * @returns {Map<number, Map<number, number>>} - NBLAST scores as map of query index to map of target index to score.
+   */
   queriesTargets(
     queryIdxs,
     targetIdxs,
@@ -46,7 +85,7 @@ class NBlaster {
     const sym = symmetry ? symmetry.toString() : undefined;
     const mcd =
       Number(maxCentroidDist) > 0 ? Number(maxCentroidDist) : undefined;
-    return this.arena.queriesTargets(
+    return this.arena.queries_targets(
       new BigUint64Array(queryIdxs),
       new BigUint64Array(targetIdxs),
       !!normalize,
@@ -56,11 +95,22 @@ class NBlaster {
     );
   }
 
-  allVAll(normalize, symmetry, useAlpha, maxCentroidDist) {
+  /**
+   * NBLAST all point clouds against each other (as a cartesian product).
+   *
+   * @param {number[]} queryIdxs - Query neuron indices
+   * @param {number[]} targetIdxs - Target neuron indices
+   * @param {boolean} [normalize=false] - whether to normalise against self-hit score
+   * @param {string|null} [symmetry] - whether and how to combine with the reverse score. Should be "arithmetic_mean", "geometric_mean", "harmonic_mean", "min", "max", or undefined (do not use reverse score).
+   * @param {boolean} [useAlpha=false] - whether to scale dotprops by colinearity values.
+   * @param {number} [maxCentroidDist] - skip query if point clouds' centroids are further than this distance; if not given, run all queries.
+   * @returns {Map<number, Map<number, number>>} - NBLAST scores as map of query index to map of target index to score.
+   */
+  async allVsAll(normalize, symmetry, useAlpha, maxCentroidDist) {
     const sym = symmetry ? symmetry.toString() : undefined;
     const mcd =
       Number(maxCentroidDist) > 0 ? Number(maxCentroidDist) : undefined;
-    return this.arena.allVAll(!!normalize, sym, !!useAlpha, mcd);
+    return this.arena.all_v_all(!!normalize, sym, !!useAlpha, mcd);
   }
 }
 
@@ -161,7 +211,7 @@ async function onButtonClick(ev) {
   console.log("creating dotprops");
   for (let p of CACHE.points) {
     progress.innerText = "Creating dotprops for cloud " + idx;
-    CACHE.idxs.push(arena.addPoints(p));
+    CACHE.idxs.push(arena.addNeuron(p));
     console.log("dotprops created for " + idx);
     idx++;
   }
