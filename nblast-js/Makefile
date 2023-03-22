@@ -1,10 +1,10 @@
 .PHONY: pkg
-pkg-debug:
-	wasm-pack build --target web
+pkg-debug: clean-pkg
+	wasm-pack build --target no-modules
 
 .PHONY:
-pkg:
-	wasm-pack build --release --target web
+pkg: clean-pkg
+	wasm-pack build --release --target no-modules
 
 .PHONY: clean-pkg
 clean-pkg:

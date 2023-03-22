@@ -1,11 +1,11 @@
 use std::fmt::Display;
 use std::{collections::HashMap, error::Error};
 
-use js_sys::JsString;
+use js_sys::{Float64Array, JsString};
 use nblast::Precision;
 use nblast::{
     nalgebra::{Unit, Vector3},
-    NeuronIdx, RStarTangentsAlphas, RangeTable, ScoreCalc, Symmetry, TangentAlpha,
+    Neuron, NeuronIdx, RStarTangentsAlphas, RangeTable, ScoreCalc, Symmetry, TangentAlpha,
 };
 use wasm_bindgen::prelude::*;
 
@@ -82,12 +82,14 @@ impl NblastArena {
         })
     }
 
+    #[wasm_bindgen(js_name="addPoints")]
     pub fn add_points(&mut self, flat_points: &[f64]) -> JsResult<usize> {
         let points = flat_to_array3(flat_points);
         let neuron = RStarTangentsAlphas::new(points, self.k).map_err(JsError::new)?;
         Ok(self.arena.add_neuron(neuron))
     }
 
+    #[wasm_bindgen(js_name="addPointsTangentsAlphas")]
     pub fn add_points_tangents_alphas(
         &mut self,
         flat_points: &[f64],
@@ -108,6 +110,7 @@ impl NblastArena {
         Ok(self.arena.add_neuron(neuron))
     }
 
+    #[wasm_bindgen(js_name="queryTarget")]
     pub fn query_target(
         &self,
         query_idx: NeuronIdx,
@@ -122,6 +125,7 @@ impl NblastArena {
             .query_target(query_idx, target_idx, normalize, &sym, use_alpha))
     }
 
+    #[wasm_bindgen(js_name="queriesTargets")]
     pub fn queries_targets(
         &self,
         query_idxs: &[NeuronIdx],
@@ -144,6 +148,7 @@ impl NblastArena {
         Ok(serde_wasm_bindgen::to_value(&out)?)
     }
 
+    #[wasm_bindgen(js_name="allVAll")]
     pub fn all_v_all(
         &self,
         normalize: bool,
@@ -161,4 +166,27 @@ impl NblastArena {
         ));
         Ok(serde_wasm_bindgen::to_value(&out)?)
     }
+}
+
+/// Calculate the tangents and alpha values of a (flattened)
+/// array of points.
+/// Returns both arrays flattened and concatenated:
+/// i.e. the first 3/4 of the array is the flattened tangents,
+/// and the remaining 1/4 is the alphas.
+#[wasm_bindgen(js_name = "makeFlatTangentsAlphas")]
+pub fn make_flat_tangents_alphas(flat_points: &[f64], k: usize) -> JsResult<Float64Array> {
+    let points = flat_to_array3(flat_points);
+    let neuron = RStarTangentsAlphas::new(points, k).map_err(JsError::new)?;
+    let out = Float64Array::new_with_length(neuron.len() as u32);
+    for (idx, val) in neuron
+        .tangents()
+        .into_iter()
+        .map(|n| [n[0], n[1], n[2]])
+        .flatten()
+        .chain(neuron.alphas().into_iter())
+        .enumerate()
+    {
+        out.set_index(idx as u32, val);
+    }
+    Ok(out)
 }

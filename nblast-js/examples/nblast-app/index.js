@@ -13,11 +13,11 @@ class NBlaster {
   }
 
   addPoints(points) {
-    return this.arena.add_points(new Float64Array(points.flat()));
+    return this.arena.addPoints(new Float64Array(points.flat()));
   }
 
   addPointsTangentsAlphas(points, tangents, alphas) {
-    return this.arena.add_points_tangents_alphas(
+    return this.arena.addPointsTangentsAlphas(
       new Float64Array(points.flat()),
       new Float64Array(tangents.flat()),
       new Float64Array(alphas)
@@ -26,7 +26,7 @@ class NBlaster {
 
   queryTarget(queryIdx, targetIdx, normalize, symmetry, useAlpha) {
     const sym = symmetry ? symmetry.toString() : undefined;
-    return this.arena.query_target(
+    return this.arena.queryTarget(
       Math.round(queryIdx),
       Math.round(targetIdx),
       !!normalize,
@@ -46,7 +46,7 @@ class NBlaster {
     const sym = symmetry ? symmetry.toString() : undefined;
     const mcd =
       Number(maxCentroidDist) > 0 ? Number(maxCentroidDist) : undefined;
-    return this.arena.queries_targets(
+    return this.arena.queriesTargets(
       new BigUint64Array(queryIdxs),
       new BigUint64Array(targetIdxs),
       !!normalize,
@@ -56,11 +56,11 @@ class NBlaster {
     );
   }
 
-  allVsAll(normalize, symmetry, useAlpha, maxCentroidDist) {
+  allVAll(normalize, symmetry, useAlpha, maxCentroidDist) {
     const sym = symmetry ? symmetry.toString() : undefined;
     const mcd =
       Number(maxCentroidDist) > 0 ? Number(maxCentroidDist) : undefined;
-    return this.arena.all_v_all(!!normalize, sym, !!useAlpha, mcd);
+    return this.arena.allVAll(!!normalize, sym, !!useAlpha, mcd);
   }
 }
 
@@ -168,7 +168,7 @@ async function onButtonClick(ev) {
 
   console.log("running nblast");
   progress.innerText = `Running NBLAST query for ${idx}x${idx}`;
-  const result = arena.allVsAll(
+  const result = arena.allVAll(
     document.getElementById("normalizeInput").checked,
     document.getElementById("symmetryInput").value,
     document.getElementById("alphaInput").checked,
