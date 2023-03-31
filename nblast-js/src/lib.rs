@@ -82,14 +82,14 @@ impl NblastArena {
         })
     }
 
-    #[wasm_bindgen(js_name="addPoints")]
+    #[wasm_bindgen(js_name = "addPoints")]
     pub fn add_points(&mut self, flat_points: &[f64]) -> JsResult<usize> {
         let points = flat_to_array3(flat_points);
         let neuron = RStarTangentsAlphas::new(points, self.k).map_err(JsError::new)?;
         Ok(self.arena.add_neuron(neuron))
     }
 
-    #[wasm_bindgen(js_name="addPointsTangentsAlphas")]
+    #[wasm_bindgen(js_name = "addPointsTangentsAlphas")]
     pub fn add_points_tangents_alphas(
         &mut self,
         flat_points: &[f64],
@@ -110,7 +110,7 @@ impl NblastArena {
         Ok(self.arena.add_neuron(neuron))
     }
 
-    #[wasm_bindgen(js_name="queryTarget")]
+    #[wasm_bindgen(js_name = "queryTarget")]
     pub fn query_target(
         &self,
         query_idx: NeuronIdx,
@@ -125,7 +125,7 @@ impl NblastArena {
             .query_target(query_idx, target_idx, normalize, &sym, use_alpha))
     }
 
-    #[wasm_bindgen(js_name="queriesTargets")]
+    #[wasm_bindgen(js_name = "queriesTargets")]
     pub fn queries_targets(
         &self,
         query_idxs: &[NeuronIdx],
@@ -148,7 +148,7 @@ impl NblastArena {
         Ok(serde_wasm_bindgen::to_value(&out)?)
     }
 
-    #[wasm_bindgen(js_name="allVAll")]
+    #[wasm_bindgen(js_name = "allVAll")]
     pub fn all_v_all(
         &self,
         normalize: bool,

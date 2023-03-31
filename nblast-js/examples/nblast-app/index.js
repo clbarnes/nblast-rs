@@ -1,6 +1,64 @@
-import init, { NblastArena } from "./node_modules/nblast-js/nblast_js.js";
+import init, { NblastArena, makeFlatTangentsAlphas } from "./node_modules/nblast-js/nblast_js.js";
 
 const CACHE = {};
+
+/**
+ * Calculate tangents and alpha values for given points
+ * (as an array of 3-length arrays of numbers),
+ * and returned in flat typed array form as can be passed into the NblastArena.
+ *
+ * Tangents and alphas can be given, in which case they will be returned as
+ * flat typed arrays,
+ * but it's better to do this elsewhere to save copies between the main and worker threads.
+ *
+ * @param {number[][]} points
+ * @param {number[][]} [tangents]
+ * @param {number[]} [alphas]
+ * @returns {Object.<string, Float64Array>} { points, tangents, alphas }, in flattened form which can be passed straight into wasm.
+ */
+function makeFlatPointsTangentsAlphas(points, tangents, alphas) {
+  const pointsFlat = flatArray64(points);
+  let tangentsFlat;
+  let alphasFlat;
+
+  if (tangents != null) {
+    tangentsFlat = flatArray64(tangents);
+    alphasFlat = flatArray64(alphas, points.length, 1);
+  } else {
+    const tangentsAlphas = makeFlatTangentsAlphas(pointsFlat);
+    tangentsFlat = tangentsAlphas.slice(0, pointsFlat.length);
+    alphasFlat = tangentsAlphas.slice(pointsFlat.length);
+  }
+
+  return {
+    points: pointsFlat,
+    tangents: tangentsFlat,
+    alphas: alphasFlat
+  }
+}
+
+/**
+ * Return a Float64Array, which may contain the contents of (flattened) arr,
+ * or an array with a particular length and fill value.
+ *
+ * @param {(number[]|number[][]|Float64Array)} [arr]
+ * @param {number} [lengthIfNull]
+ * @param {number} [fillIfNull]
+ * @returns {Float64Array}
+ */
+function flatArray64(arr, lengthIfNull, fillIfNull) {
+  if (arr == null) {
+    return new Float64Array(lengthIfNull).fill(fillIfNull);
+  }
+  if (arr instanceof Float64Array) {
+    return arr;
+  }
+  if (Array.isArray(arr[0])) {
+    return new Float64Array(arr.flat());
+  } else {
+    return new Float64Array(arr);
+  }
+}
 
 /**
  * Class containing NBLASTable neurons and a score matrix.
