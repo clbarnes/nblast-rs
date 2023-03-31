@@ -69,6 +69,93 @@ fn logspace(
         .collect()
 }
 
+struct PairSampler {
+    sets: Vec<Vec<usize>>,
+    cumu_weights: Vec<f64>,
+    rng: fastrand::Rng,
+}
+
+impl PairSampler {
+    fn new(sets: Vec<Vec<usize>>, seed: Option<u64>) -> Self {
+        let mut rng = fastrand::Rng::new();
+        if let Some(s) = seed {
+            rng.seed(s);
+        }
+        let mut weights: Vec<_> = sets.iter().map(|v| v.len().pow(2) as f64).collect();
+        let total: f64 = weights.iter().sum();
+        let mut acc = 0.0;
+        for x in &mut weights {
+            acc += *x / total;
+            *x = acc;
+        }
+        Self { sets, cumu_weights: weights, rng }
+    }
+
+    pub fn new_from_sets(sets: &[HashSet<usize>], seed: Option<u64>) -> Self {
+        let vecs = sets
+            .iter()
+            .map(|s| {
+                if s.len() < 2 {
+                    panic!("Gave set with <2 components");
+                }
+                let mut v: Vec<_> = s.iter().cloned().collect();
+                v.sort();
+                v
+            })
+            .collect();
+        Self::new(vecs, seed)
+    }
+
+    fn outer_idx(&mut self) -> usize {
+        if self.cumu_weights.len() == 1 {
+            return 0;
+        }
+        let rand = self.rng.f64();
+        match self.cumu_weights.binary_search_by(|w| w.partial_cmp(&rand).expect("NaN weight")) {
+            Ok(idx) => idx,
+            Err(idx) => idx,
+        }
+    }
+
+    pub fn sample(&mut self) -> (usize, usize) {
+        let set = self.sets[self.outer_idx()];
+        let first = self.rng.usize(0..set.len());
+        let mut second = first;
+        while second == first {
+            second = self.rng.usize(0..set.len());
+        }
+        (first, second)
+    }
+
+    pub fn sample_n(&mut self, n: usize) -> Vec<(usize, usize)> {
+        std::iter::repeat_with(|| self.sample()).take(n).collect()
+    }
+
+    pub fn len(&self) -> usize {
+        self.sets.iter().map(|v| v.len().pow(2)).sum()
+    }
+
+    pub fn n_sets(&self) -> usize {
+        self.sets.len()
+    }
+
+    pub fn exhaust(&self) -> Vec<(usize, usize)> {
+        let mut out = Vec::default();
+
+        for set in self.sets.iter() {
+            for q_idx in set.iter() {
+                for t_idx in set.iter() {
+                    if t_idx != q_idx {
+                        out.push((*q_idx, *t_idx));
+                    }
+                }
+            }
+        }
+
+        out
+    }
+}
+
 /// Calculate a score matrix (lookup table for converting point matches
 /// into NBLAST scores) from real data using some sets of matching and non-matching neurons.
 ///
@@ -81,7 +168,7 @@ pub struct ScoreMatrixBuilder<T: TargetNeuron> {
     seed: u64,
     // Sets of neurons, as indexes into `self.neurons`, which should match
     matching_sets: Vec<HashSet<usize>>,
-    nonmatching: Option<Vec<usize>>,
+    nonmatching_sets: Option<Vec<HashSet<usize>>>,
     use_alpha: bool,
     threads: Option<usize>,
     dist_bin_lookup: Option<BinLookup<Precision>>,
@@ -95,7 +182,7 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
             neurons,
             seed,
             matching_sets: Vec::default(),
-            nonmatching: None,
+            nonmatching_sets: None,
             use_alpha: false,
             threads: Some(0),
             dist_bin_lookup: None,
@@ -112,7 +199,7 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
         self
     }
 
-    /// Optionally list neurons which are mutually non-matching,
+    /// Optionally list neuron sets which are mutually non-matching,
     /// as indices into `ScoreMatrixBuilder.neurons`,
     /// from which non-matching pairs will be randomly drawn.
     /// By default, all neurons are included,
@@ -120,8 +207,14 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
     ///
     /// Candidate non-matching pairs are made sure not to be in the matching pairs,
     /// so this can safely be ignored.
-    pub fn set_nonmatching(&mut self, nonmatching: Vec<usize>) -> &mut Self {
-        self.nonmatching = Some(nonmatching);
+    pub fn add_nonmatching_set(&mut self, nonmatching: HashSet<usize>) -> &mut Self {
+        if let Some(ref mut vector) = self.nonmatching_sets {
+            vector.push(nonmatching);
+        } else {
+            let mut v = Vec::default();
+            v.push(nonmatching);
+            self.nonmatching_sets = Some(v);
+        }
         self
     }
 
@@ -261,11 +354,15 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
         }
 
         // if nonmatching not given, use all neurons
+        let nonmatching_sets = self
+            .nonmatching_sets
+            .unwrap_or_else(|| vec![(0..self.neurons.len()).collect()]);
+
         let nonmatching_idxs = self
-            .nonmatching
+            .nonmatching_sets
             .as_ref()
             .cloned() // ? is this avoidable
-            .or_else(|| Some((0..self.neurons.len()).collect()))
+            .or_else(|| Some(vec![(0..self.neurons.len()).collect()]))
             .unwrap();
 
         if matching_jobs.len() > nonmatching_idxs.len() * (nonmatching_idxs.len() - 1) {
@@ -275,7 +372,7 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
         let idx_range = ..nonmatching_idxs.len();
         let rng = fastrand::Rng::new();
         rng.seed(self.seed);
-        rng.usize(idx_range);
+
         let mut nonmatching_jobs: HashSet<(usize, usize)> = HashSet::default();
 
         // randomly pick nonmatching pairs until we have requested as many distdots
