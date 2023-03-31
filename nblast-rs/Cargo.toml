@@ -20,8 +20,6 @@ categories = ["algorithms", "science"]
 
 nalgebra = "0.31"
 rstar = "0.9"
-# rand = { version = "0.8", default-features = false }
-# rand_pcg = "0.3"
 fastrand = "1.9"
 rayon = { version = "1.5", optional = true }
 thiserror = "1.0"
