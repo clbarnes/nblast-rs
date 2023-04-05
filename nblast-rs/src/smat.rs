@@ -25,14 +25,9 @@ use fastrand;
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 use std::collections::HashSet;
-use std::error;
-use std::fmt;
-use std::iter;
-use std::ops::Range;
-#[cfg(feature = "rayon")]
-use std::sync::mpsc::channel;
+use std::ops::BitXor;
+use thiserror::Error;
 
-use crate::Neuron;
 use crate::{BinLookup, NdBinLookup, RangeTable};
 use crate::{DistDot, Precision, TargetNeuron};
 
@@ -40,35 +35,14 @@ const EPSILON: Precision = 1e-6;
 
 type JobSet = HashSet<(usize, usize)>;
 
-#[derive(Debug)]
-pub struct ScoreMatBuildErr {}
-
-impl fmt::Display for ScoreMatBuildErr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Bins not set or no matching neurons given")
-    }
-}
-
-impl error::Error for ScoreMatBuildErr {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        None
-    }
-}
-
-/// Generate `count` logarithmically-spaced values from `base^min_exp` up to (and including) `base^max_exp`
-fn logspace(
-    base: Precision,
-    min_exp: Precision,
-    max_exp: Precision,
-    count: usize,
-) -> Vec<Precision> {
-    // TODO: do this better
-    assert!(count > 2);
-    let step = (max_exp - min_exp) / (count - 1) as Precision;
-
-    (0..count)
-        .map(|idx| base.powf(min_exp + idx as Precision * step))
-        .collect()
+#[derive(Debug, Error)]
+pub enum ScoreMatBuildErr {
+    #[error("No matching sets given")]
+    NoMatchingSets,
+    #[error("No distance bin information given")]
+    NoDistBins,
+    #[error("No dot product bin information given")]
+    NoDotBins,
 }
 
 struct PairSampler {
@@ -186,10 +160,6 @@ impl PairSampler {
             .sum()
     }
 
-    pub fn n_sets(&self) -> usize {
-        self.sets.len()
-    }
-
     pub fn exhaust(&self) -> Vec<(usize, usize)> {
         let mut out = Vec::default();
 
@@ -207,8 +177,16 @@ impl PairSampler {
     }
 }
 
+fn make_rng(seed: Option<u64>) -> fastrand::Rng {
+    let rng = fastrand::Rng::new();
+    if let Some(s) = seed {
+        rng.seed(s);
+    }
+    rng
+}
+
 pub struct TrainingSampler {
-    rng: fastrand::Rng,
+    seed: Option<u64>,
     matching_sets: Vec<HashSet<usize>>,
     nonmatching_sets: Option<Vec<HashSet<usize>>>,
     n_neurons: usize,
@@ -216,12 +194,8 @@ pub struct TrainingSampler {
 
 impl TrainingSampler {
     pub fn new(n_neurons: usize, seed: Option<u64>) -> Self {
-        let rng = fastrand::Rng::new();
-        if let Some(s) = seed {
-            rng.seed(s);
-        }
         Self {
-            rng,
+            seed,
             matching_sets: Vec::default(),
             nonmatching_sets: None,
             n_neurons,
@@ -293,13 +267,26 @@ impl TrainingSampler {
     /// If n_nonmatching is `None`, uses the same number as there are matching pairs.
     ///
     /// The first element of the tuple is the matching jobs; the second set is non-matching.
+    /// Which jobs are selected is deterministic with the seed and number of jobs requested, but the order is not.
     pub fn make_jobs(
         &self,
         n_matching: Option<usize>,
         n_nonmatching: Option<usize>,
     ) -> (JobSet, JobSet) {
+        let seed = self.seed.map(|s1| {
+            let mut s = s1;
+            if let Some(s2) = n_matching {
+                s = s.bitxor(s2 as u64);
+            }
+            if let Some(s3) = n_nonmatching {
+                s = s.bitxor(s3 as u64);
+            }
+            s
+        });
+        let rng = make_rng(seed);
+
         let mut match_sampler =
-            PairSampler::from_sets(&self.matching_sets, Some(self.rng.u64(0..u64::MAX)));
+            PairSampler::from_sets(&self.matching_sets, Some(rng.u64(0..u64::MAX)));
 
         let matching_jobs: JobSet = match n_matching {
             Some(n) => match match_sampler.sample_n(n) {
@@ -310,7 +297,7 @@ impl TrainingSampler {
         };
 
         // if nonmatching not given, use all neurons
-        let nonmatch_seed = Some(self.rng.u64(0..u64::MAX));
+        let nonmatch_seed = Some(rng.u64(0..u64::MAX));
         let mut nonmatch_sampler = self.nonmatching_sets.as_ref().map_or_else(
             || {
                 let v = vec![(0..self.n_neurons).collect()];
@@ -363,22 +350,7 @@ pub fn all_distdots_par<T: TargetNeuron + Sync>(
         .collect()
 }
 
-/// Find indices into a flattened array of `DistDot`s (as returned by `all_distdots` et al.)
-/// which correspond to particular jobs.
-/// i.e. element `i` of the output will contain a range which corresponds to the job at `jobs[i]`.
-/// If the same neurons and jobs were given to `all_distdots`, that range could index the output
-/// to find the distdots corresponding to that job.
-pub fn job_idxs<T: Neuron>(neurons: &[T], jobs: &[(usize, usize)]) -> Vec<Range<usize>> {
-    let mut start = 0;
-    let mut out = Vec::with_capacity(jobs.len());
-    for (q, _) in jobs.iter() {
-        let len = neurons[*q].len();
-        out.push(start..start + len);
-        start += len;
-    }
-    out
-}
-
+#[derive(Clone, Debug)]
 enum LookupArgs {
     Lookup(BinLookup<Precision>),
     NBins(usize),
@@ -393,24 +365,20 @@ enum LookupArgs {
 pub struct ScoreMatrixBuilder<T: TargetNeuron> {
     // Data set of neuron point clouds
     neurons: Vec<T>,
-    seed: u64,
-    // Sets of neurons, as indexes into `self.neurons`, which should match
-    matching_sets: Vec<HashSet<usize>>,
-    nonmatching_sets: Option<Vec<HashSet<usize>>>,
+    sampler: TrainingSampler,
     use_alpha: bool,
     threads: Option<usize>,
-    dist_bin_lookup: Option<BinLookup<Precision>>,
-    dot_bin_lookup: Option<BinLookup<Precision>>,
+    dist_bin_lookup: Option<LookupArgs>,
+    dot_bin_lookup: Option<LookupArgs>,
 }
 
 impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
     /// `seed` is used when randomly selecting non-matching neurons to use as controls.
     pub fn new(neurons: Vec<T>, seed: u64) -> Self {
+        let n_neurons = neurons.len();
         Self {
             neurons,
-            seed,
-            matching_sets: Vec::default(),
-            nonmatching_sets: None,
+            sampler: TrainingSampler::new(n_neurons, Some(seed)),
             use_alpha: false,
             threads: Some(0),
             dist_bin_lookup: None,
@@ -422,8 +390,11 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
     /// as indices into the `ScoreMatrixBuilder.neurons`.
     /// This can be done several times with different sets.
     /// Matching sets should be small subsets of the total neuron count.
-    pub fn add_matching_set(&mut self, matching: HashSet<usize>) -> &mut Self {
-        self.matching_sets.push(matching);
+    ///
+    /// Indices outside of the neuron vec will be silently filtered out.
+    /// Filtered sets with length <2 will also be silently ignored.
+    pub fn add_matching_set(&mut self, matching: &[usize]) -> &mut Self {
+        self.sampler.add_matching_set(matching);
         self
     }
 
@@ -435,14 +406,8 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
     ///
     /// Candidate non-matching pairs are made sure not to be in the matching pairs,
     /// so this can safely be ignored.
-    pub fn add_nonmatching_set(&mut self, nonmatching: HashSet<usize>) -> &mut Self {
-        if let Some(ref mut vector) = self.nonmatching_sets {
-            vector.push(nonmatching);
-        } else {
-            let mut v = Vec::default();
-            v.push(nonmatching);
-            self.nonmatching_sets = Some(v);
-        }
+    pub fn add_nonmatching_set(&mut self, nonmatching: &[usize]) -> &mut Self {
+        self.sampler.add_nonmatching_set(nonmatching);
         self
     }
 
@@ -466,81 +431,96 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
         self
     }
 
-    /// Manually set the bounds of the distance bins.
-    /// The first and last bounds are effectively ignored,
-    /// as values outside that range are snapped to the bottom and top bins.
-    pub fn set_dist_bins(&mut self, bins: Vec<Precision>) -> &mut Self {
-        self.dist_bin_lookup = Some(BinLookup::new(bins, (true, true)).expect("Illegal bins"));
+    /// Manually set the lookup bins for distances.
+    ///
+    /// Consider `BinLookup::new_exp` here.
+    pub fn set_dist_lookup(&mut self, lookup: BinLookup<Precision>) -> &mut Self {
+        self.dist_bin_lookup = Some(LookupArgs::Lookup(lookup));
         self
     }
 
     /// Automatically generate distance bins by logarithmically interpolating
     /// between `base^min_exp` (which should be small) and `base^max_exp`.
-    pub fn set_n_dist_bins(
-        &mut self,
-        n_bins: usize,
-        base: Precision,
-        min_exp: Precision,
-        max_exp: Precision,
-    ) -> &mut Self {
-        let mut v = logspace(base, min_exp, max_exp, n_bins);
-        v.push(1.0 / 0.0);
-        self.set_dist_bins(v)
-    }
-
-    /// Manually set the upper bounds of the abs dot product bins.
-    /// The first and last bounds are effectively ignored, as values outside those values
-    /// snap into their closest bins.
-    ///
-    /// Because the tangent vectors are unit-length,
-    /// absolute dot products between them are between 0 and 1
-    /// (although float precision means values slightly above 1 are possible).
-    pub fn set_dot_bins(&mut self, dot_bin_boundaries: Vec<Precision>) -> &mut Self {
-        self.dot_bin_lookup =
-            Some(BinLookup::new(dot_bin_boundaries, (true, true)).expect("Illegal bins"));
+    pub fn set_n_dist_bins(&mut self, n_bins: usize) -> &mut Self {
+        self.dist_bin_lookup = Some(LookupArgs::NBins(n_bins));
         self
     }
 
-    /// Automatically generate abs dot product bins by linearly interpolating between
-    /// 0 and 1.
+    /// Manually set the lookup bins for dot products.
+    ///
+    /// Consider `BinLookup::new_linear(0.0, 1.0, n_bins, (true, true))` here.
+    pub fn set_dot_lookup(&mut self, lookup: BinLookup<Precision>) -> &mut Self {
+        self.dot_bin_lookup = Some(LookupArgs::Lookup(lookup));
+        self
+    }
+
+    /// Automatically generate abs dot product bins by using dot products
+    /// from matching sets.
     pub fn set_n_dot_bins(&mut self, n_bins: usize) -> &mut Self {
-        let step = 1.0 / (n_bins + 1) as Precision;
-        self.set_dot_bins((0..(n_bins + 1)).map(|n| step * n as Precision).collect())
+        self.dot_bin_lookup = Some(LookupArgs::NBins(n_bins));
+        self
+    }
+
+    /// Unwrap lookup args (`BinLookup` or number of bins) with informative error if not given.
+    fn _get_lookup_args(&self) -> Result<(LookupArgs, LookupArgs), ScoreMatBuildErr> {
+        let dist_lookup_args = match &self.dist_bin_lookup {
+            Some(lookup) => lookup.clone(),
+            None => return Err(ScoreMatBuildErr::NoDistBins),
+        };
+        let dot_lookup_args = match &self.dot_bin_lookup {
+            Some(lookup) => lookup.clone(),
+            None => return Err(ScoreMatBuildErr::NoDotBins),
+        };
+        Ok((dist_lookup_args, dot_lookup_args))
+    }
+
+    /// Unwrap or calculate `BinLookup`s.
+    fn _get_lookup(
+        &self,
+        match_distdots: &[DistDot],
+    ) -> Result<NdBinLookup<Precision>, ScoreMatBuildErr> {
+        let (dist_lookup_args, dot_lookup_args) = self._get_lookup_args()?;
+
+        let dist_bin_lookup = match dist_lookup_args {
+            LookupArgs::Lookup(lookup) => Ok(lookup),
+            LookupArgs::NBins(n) => {
+                let mut dists: Vec<_> = match_distdots.iter().map(|dd| dd.dist).collect();
+                BinLookup::new_n_quantiles(&mut dists, n, (true, true))
+                    .map_err(|_| ScoreMatBuildErr::NoDistBins)
+            }
+        }?;
+        let dot_bin_lookup = match dot_lookup_args {
+            LookupArgs::Lookup(lookup) => Ok(lookup),
+            LookupArgs::NBins(n) => {
+                let mut dots: Vec<_> = match_distdots.iter().map(|dd| dd.dot).collect();
+                BinLookup::new_n_quantiles(&mut dots, n, (true, true))
+                    .map_err(|_| ScoreMatBuildErr::NoDotBins)
+            }
+        }?;
+
+        Ok(NdBinLookup::new(vec![dist_bin_lookup, dot_bin_lookup]))
     }
 
     /// Return a tuple of `(dist_bins, dot_bins, cells)` in the forms accepted by
     /// `table_to_fn`.
     pub fn build(&self) -> Result<RangeTable<Precision, Precision>, ScoreMatBuildErr> {
-        if self.matching_sets.is_empty() {
-            return Err(ScoreMatBuildErr {});
+        if self.sampler.matching_sets.is_empty() {
+            return Err(ScoreMatBuildErr::NoMatchingSets);
         }
-        let dist_bin_lookup = match &self.dist_bin_lookup {
-            Some(lookup) => lookup.clone(),
-            None => return Err(ScoreMatBuildErr {}),
-        };
-        let dot_bin_lookup = match &self.dot_bin_lookup {
-            Some(lookup) => lookup.clone(),
-            None => return Err(ScoreMatBuildErr {}),
-        };
 
-        let dist_dot_lookup = NdBinLookup::new(vec![dist_bin_lookup, dot_bin_lookup]);
+        let (match_jobs, nonmatch_jobs) = self.sampler.make_jobs(None, None);
 
-        let (match_jobs, nonmatch_jobs) = self._match_nonmatch_jobs();
-        let matching_factor = nonmatch_jobs.len() as Precision / match_jobs.len() as Precision;
+        let match_distdots = self._all_distdots(&match_jobs.into_iter().collect::<Vec<_>>());
 
-        let match_counts = self._pairs_to_counts(match_jobs, &dist_dot_lookup);
-        let nonmatch_counts = self._pairs_to_counts(nonmatch_jobs, &dist_dot_lookup);
+        let dist_dot_lookup = self._get_lookup(&match_distdots)?;
 
-        let cells = match_counts
-            .into_iter()
-            .zip(nonmatch_counts.into_iter())
-            .map(|(match_count, nonmatch_count)| {
-                // add epsilon to prevent division by 0
-                ((match_count as Precision * matching_factor + EPSILON)
-                    / (nonmatch_count as Precision + EPSILON))
-                    .log2()
-            })
-            .collect();
+        let match_counts = cell_counts(&dist_dot_lookup, match_distdots);
+
+        let nonmatch_distdots = self._all_distdots(&nonmatch_jobs.into_iter().collect::<Vec<_>>());
+
+        let nonmatch_counts = cell_counts(&dist_dot_lookup, nonmatch_distdots);
+
+        let cells = log_odds_ratio(match_counts, nonmatch_counts);
 
         Ok(RangeTable {
             bins_lookup: dist_dot_lookup,
@@ -548,109 +528,55 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
         })
     }
 
-    /// Generate the "jobs" for matching and nonmatching neuron queries.
-    ///
-    /// Every non-repeating 2-length permutation of neurons within each matching set is used.
-    /// Then, pairs of neurons are taken randomly from the non-matching set
-    /// (if `None`, use all neurons) until there are at least as many non-matching DistDots
-    /// as there are matching.
-    fn _match_nonmatch_jobs(&self) -> (JobSet, JobSet) {
-        let rng = fastrand::Rng::with_seed(self.seed);
-
-        let match_sampler = PairSampler::from_sets(&self.matching_sets, Some(rng.u64(0..u64::MAX)));
-        let matching_jobs: JobSet = match_sampler.exhaust().into_iter().collect();
-
-        // if nonmatching not given, use all neurons
-        let nonmatch_seed = Some(rng.u64(0..u64::MAX));
-        let mut nonmatch_sampler = self.nonmatching_sets.as_ref().map_or_else(
-            || {
-                let v = vec![(0..self.neurons.len()).collect()];
-                PairSampler::from_sets(&v, nonmatch_seed)
-            },
-            |s| PairSampler::from_sets(&s, nonmatch_seed),
-        );
-
-        if matching_jobs.len() > nonmatch_sampler.n_pairs() {
-            panic!("Not enough non-matching neurons")
-        }
-
-        let nonmatching_jobs = nonmatch_sampler
-            .sample_n(matching_jobs.len())
-            .unwrap_or_else(|s| s);
-
-        (matching_jobs, nonmatching_jobs)
-    }
-
-    /// If both indexes are in the neuron slice, get the DistDots between them.
-    fn _idx_to_distdots(&self, q_idx: usize, t_idx: usize) -> Option<Vec<DistDot>> {
-        let q = self.neurons.get(q_idx)?;
-        let t = self.neurons.get(t_idx)?;
-        Some(q.query_dist_dots(t, self.use_alpha))
-    }
-
-    /// For all given `(query, target)` index pairs, find DistDots and flatten
-    /// into a single array.
-    fn _pairs_to_counts_ser(
-        &self,
-        jobs: impl IntoIterator<Item = (usize, usize)>,
-        dist_dot_lookup: &NdBinLookup<Precision>,
-    ) -> Vec<usize> {
-        let mut counts: Vec<usize> = iter::repeat(0).take(dist_dot_lookup.n_cells).collect();
-
-        let distdots = jobs
-            .into_iter()
-            .filter_map(|(q_idx, t_idx)| self._idx_to_distdots(q_idx, t_idx))
-            .flatten();
-
-        for dd in distdots {
-            let idx = dist_dot_lookup.to_linear_idx(&[dd.dist, dd.dot]).unwrap();
-            counts[idx] += 1;
-        }
-        counts
-    }
-
+    /// Calculate all distdots for given index pairs.
     #[cfg(not(feature = "parallel"))]
-    fn _pairs_to_counts(
-        &self,
-        jobs: HashSet<(usize, usize)>,
-        dist_dot_lookup: &NdBinLookup<Precision>,
-    ) -> Vec<usize> {
-        self._pairs_to_counts_ser(jobs, dist_dot_lookup)
+    fn _all_distdots(&self, jobs: &[(usize, usize)]) -> Vec<DistDot> {
+        all_distdots(&self.neurons, jobs, self.use_alpha)
     }
 
+    /// Calculate all distdots for given index pairs, possibly in parallel.
     #[cfg(feature = "parallel")]
-    fn _pairs_to_counts(
-        &self,
-        jobs: HashSet<(usize, usize)>,
-        dist_dot_lookup: &NdBinLookup<Precision>,
-    ) -> Vec<usize> {
+    fn _all_distdots(&self, jobs: &[(usize, usize)]) -> Vec<DistDot> {
         if let Some(t) = self.threads {
+            // todo: avoid building this pool twice
             let pool = rayon::ThreadPoolBuilder::new()
                 .num_threads(t)
                 .build()
                 .unwrap();
-
-            pool.install(|| {
-                let (sender, receiver) = channel();
-
-                jobs.into_par_iter()
-                    .filter_map(|(q_idx, t_idx)| self._idx_to_distdots(q_idx, t_idx))
-                    .flatten()
-                    .map(|dd| dist_dot_lookup.to_linear_idx(&[dd.dist, dd.dot]).unwrap())
-                    .for_each_with(sender, |s, x| s.send(x).unwrap());
-
-                let mut counts: Vec<usize> =
-                    iter::repeat(0).take(dist_dot_lookup.n_cells).collect();
-
-                for idx in receiver.iter() {
-                    counts[idx] += 1;
-                }
-                counts
-            })
+            pool.install(|| all_distdots_par(&self.neurons, jobs, self.use_alpha))
         } else {
-            self._pairs_to_counts_ser(jobs, dist_dot_lookup)
+            all_distdots(&self.neurons, jobs, self.use_alpha)
         }
     }
+}
+
+/// Find the counts of distdots which fall into each cell in an NdBinLookup (useful for building a `RangeTable`).
+fn cell_counts(lookup: &NdBinLookup<Precision>, distdots: Vec<DistDot>) -> Vec<Precision> {
+    let mut counts = vec![0.0; lookup.n_cells];
+    for dd in distdots {
+        if let Ok(idx) = lookup.to_linear_idx(&[dd.dist, dd.dot]) {
+            counts[idx] += 1.0;
+        }
+    }
+    counts
+}
+
+/// Only need this with floats, even though counts should be usize.
+fn log_odds_ratio(match_counts: Vec<Precision>, nonmatch_counts: Vec<Precision>) -> Vec<Precision> {
+    let match_total: Precision = match_counts.iter().sum();
+    let nonmatch_total: Precision = nonmatch_counts.iter().sum();
+
+    match_counts
+        .into_iter()
+        .zip(nonmatch_counts.into_iter())
+        .map(|(match_count, nonmatch_count)| {
+            let p_match = match_count / match_total;
+            let p_nonmatch = nonmatch_count / nonmatch_total;
+            // N.B. these brackets are not shown in the original paper,
+            // but that is probably a formatting error
+            ((p_match + EPSILON) / (p_nonmatch + EPSILON)).log2()
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -668,21 +594,5 @@ mod test {
                 panic!("Slices mave mismatched values\n{}", msg)
             }
         }
-    }
-
-    #[test]
-    fn test_logspace() {
-        let base: Precision = 10.0;
-        let count: usize = 5;
-        assert_slice_eq(
-            &logspace(base, 1.0, 5.0, count),
-            &[
-                (10f64).powf(1.0),
-                (10f64).powf(2.0),
-                (10f64).powf(3.0),
-                (10f64).powf(4.0),
-                (10f64).powf(5.0),
-            ],
-        );
     }
 }
