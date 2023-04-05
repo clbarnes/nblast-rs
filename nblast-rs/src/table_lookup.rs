@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::error;
 use std::fmt;
 use std::fmt::Debug;
 
@@ -8,25 +7,12 @@ use thiserror::Error;
 
 use crate::Precision;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Error)]
 pub enum OutOfBin {
+    #[error("Value comes before the first bin boundary")]
     Before,
+    #[error("Value comes after the last bin ({0:?})")]
     After(usize),
-}
-
-impl fmt::Display for OutOfBin {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Self::Before => write!(f, "value comes before the first bin boundary"),
-            Self::After(idx) => write!(f, "value comes after the last bin ({:?})", idx),
-        }
-    }
-}
-
-impl error::Error for OutOfBin {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        None
-    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -40,35 +26,18 @@ impl fmt::Display for OutOfBins {
     }
 }
 
-impl error::Error for OutOfBins {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+impl std::error::Error for OutOfBins {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         None
-        // self.outside.values().next()
-        // // or
-        // let first_fail = self.outside.keys().min().expect("Must not be empty");
-        // self.outside.get(first_fail).map(|oob| Some(oob))
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Error)]
 pub enum IllegalBinBoundaries {
+    #[error("Bin boundary order is not ascending")]
     NotAscending,
-    NotEnough,
-}
-
-impl fmt::Display for IllegalBinBoundaries {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::NotAscending => write!(f, "Bin boundary order is not ascending"),
-            Self::NotEnough => write!(f, "Bin boundaries must have >= 2 values"),
-        }
-    }
-}
-
-impl error::Error for IllegalBinBoundaries {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        None
-    }
+    #[error("Bin boundaries must have >=2 values, got {0}")]
+    NotEnough(usize),
 }
 
 fn is_monotonic_ascending<T: PartialOrd>(values: &[T]) -> bool {
@@ -100,7 +69,7 @@ impl<T: PartialOrd + Copy + Debug> BinLookup<T> {
     /// `snap` is a tuple of whether to clamp values beyond the left and the right bin boundary respectively.
     pub fn new(bin_boundaries: Vec<T>, snap: (bool, bool)) -> Result<Self, IllegalBinBoundaries> {
         if bin_boundaries.len() < 2 {
-            return Err(IllegalBinBoundaries::NotEnough);
+            return Err(IllegalBinBoundaries::NotEnough(bin_boundaries.len()));
         }
         if !is_monotonic_ascending(&bin_boundaries) {
             return Err(IllegalBinBoundaries::NotAscending);
