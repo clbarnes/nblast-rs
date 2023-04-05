@@ -6,22 +6,14 @@
 //!
 //! The values in the table cells are the log2 odds ratio of a dist-dot in that cell
 //! being from a matching over a non-matching neuron pair.
-//! This is calculated by adding a large pool of neurons
-//! (most of which would not match), with small groups of neurons which should match each other.
-//! Calculate all the point matches between all pairs of neurons in those sets,
-//! then draw random pairs of neurons from either the whole neuron pool,
-//! or an explicitly non-matching subset.
+//! This is calculated by adding a pool of neurons, subsets of which should and should not be matches.
+//! Calculate all the point matches between pairs of neurons in the matching sets,
+//! and the nonmatching sets.
 //! Normalise the counts falling into each cell by the total number of matching
 //! and non-matching dist-dots, and calculate the log2 odds ratios.
 //!
 //! This is handled by the ScoreMatrixBuilder.
-//! The dist and dot bins for the table are can be set manually or determined
-//! based on how many bins there should be, distributed logarithmically
-//! (with a given base) and linearly respectively.
-// use rand::distributions::{Distribution, Uniform};
-// use rand::SeedableRng;
-// use rand_pcg::Pcg32;
-use fastrand;
+use fastrand::Rng;
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 use std::collections::HashSet;
@@ -38,22 +30,22 @@ type JobSet = HashSet<(usize, usize)>;
 #[derive(Debug, Error)]
 pub enum ScoreMatBuildErr {
     #[error("No matching sets given")]
-    NoMatchingSets,
+    MatchingSets,
     #[error("No distance bin information given")]
-    NoDistBins,
+    DistBins,
     #[error("No dot product bin information given")]
-    NoDotBins,
+    DotBins,
 }
 
 struct PairSampler {
     sets: Vec<Vec<usize>>,
     cumu_weights: Vec<f64>,
-    pub rng: fastrand::Rng,
+    pub rng: Rng,
 }
 
 impl PairSampler {
     fn new(sets: Vec<Vec<usize>>, seed: Option<u64>) -> Self {
-        let rng = fastrand::Rng::new();
+        let rng = Rng::new();
         if let Some(s) = seed {
             rng.seed(s);
         }
@@ -112,10 +104,7 @@ impl PairSampler {
     }
 
     /// If not enough unique pairs can be found, the Err response contains all pairs, but fewer than requested.
-    pub fn sample_n(
-        &mut self,
-        n: usize,
-    ) -> Result<HashSet<(usize, usize)>, HashSet<(usize, usize)>> {
+    pub fn sample_n(&mut self, n: usize) -> Result<JobSet, JobSet> {
         let mut out = HashSet::default();
 
         // If n is not much less than the total number of pairs,
@@ -177,8 +166,8 @@ impl PairSampler {
     }
 }
 
-fn make_rng(seed: Option<u64>) -> fastrand::Rng {
-    let rng = fastrand::Rng::new();
+fn make_rng(seed: Option<u64>) -> Rng {
+    let rng = Rng::new();
     if let Some(s) = seed {
         rng.seed(s);
     }
@@ -235,6 +224,7 @@ impl TrainingSampler {
     ///
     /// Candidate non-matching pairs are made sure not to be in the matching pairs,
     /// so this can safely be ignored.
+    #[allow(clippy::vec_init_then_push)]
     pub fn add_nonmatching_set(&mut self, nonmatching: &[usize]) -> &mut Self {
         let set: HashSet<usize> = nonmatching
             .iter()
@@ -303,7 +293,7 @@ impl TrainingSampler {
                 let v = vec![(0..self.n_neurons).collect()];
                 PairSampler::from_sets(&v, nonmatch_seed)
             },
-            |s| PairSampler::from_sets(&s, nonmatch_seed),
+            |s| PairSampler::from_sets(s, nonmatch_seed),
         );
 
         let n_nm = n_nonmatching.unwrap_or(matching_jobs.len());
@@ -324,8 +314,7 @@ fn all_distdots<T: TargetNeuron>(
     use_alpha: bool,
 ) -> Vec<DistDot> {
     jobs.iter()
-        .map(|(q, t)| neurons[*q].query_dist_dots(&neurons[*t], use_alpha))
-        .flatten()
+        .flat_map(|(q, t)| neurons[*q].query_dist_dots(&neurons[*t], use_alpha))
         .collect()
 }
 
@@ -370,6 +359,8 @@ pub struct ScoreMatrixBuilder<T: TargetNeuron> {
     threads: Option<usize>,
     dist_bin_lookup: Option<LookupArgs>,
     dot_bin_lookup: Option<LookupArgs>,
+    max_matching_pairs: Option<usize>,
+    max_nonmatching_pairs: Option<usize>,
 }
 
 impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
@@ -380,9 +371,11 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
             neurons,
             sampler: TrainingSampler::new(n_neurons, Some(seed)),
             use_alpha: false,
-            threads: Some(0),
+            threads: None,
             dist_bin_lookup: None,
             dot_bin_lookup: None,
+            max_matching_pairs: None,
+            max_nonmatching_pairs: None,
         }
     }
 
@@ -423,9 +416,10 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
 
     /// How many threads to use for calculating the pair matches.
     ///
-    /// `None` means the calculation is done in serial;
+    /// `None` means the calculation is done in serial (default);
     /// for `Some(n)`, `n = 0` means use all available CPUs (default),
     /// and any other value uses that many cores.
+    #[cfg(feature = "parallel")]
     pub fn set_threads(&mut self, threads: Option<usize>) -> &mut Self {
         self.threads = threads;
         self
@@ -439,8 +433,8 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
         self
     }
 
-    /// Automatically generate distance bins by logarithmically interpolating
-    /// between `base^min_exp` (which should be small) and `base^max_exp`.
+    /// Automatically generate distance bins by by using distances
+    /// from matching sets.
     pub fn set_n_dist_bins(&mut self, n_bins: usize) -> &mut Self {
         self.dist_bin_lookup = Some(LookupArgs::NBins(n_bins));
         self
@@ -461,15 +455,31 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
         self
     }
 
+    /// Draw at most this many matching pairs from the given matching sets.
+    /// May be fewer if there aren't that many combinations.
+    /// By default, uses all possible pairs.
+    pub fn set_max_matching_pairs(&mut self, n_pairs: usize) -> &mut Self {
+        self.max_matching_pairs = Some(n_pairs);
+        self
+    }
+
+    /// Draw at most this many nonmatching pairs from the given nonmatching sets.
+    /// May be fewer if there aren't that many combinations.
+    /// By default, uses as many pairs as for matching.
+    pub fn set_max_nonmatching_pairs(&mut self, n_pairs: usize) -> &mut Self {
+        self.max_nonmatching_pairs = Some(n_pairs);
+        self
+    }
+
     /// Unwrap lookup args (`BinLookup` or number of bins) with informative error if not given.
     fn _get_lookup_args(&self) -> Result<(LookupArgs, LookupArgs), ScoreMatBuildErr> {
         let dist_lookup_args = match &self.dist_bin_lookup {
             Some(lookup) => lookup.clone(),
-            None => return Err(ScoreMatBuildErr::NoDistBins),
+            None => return Err(ScoreMatBuildErr::DistBins),
         };
         let dot_lookup_args = match &self.dot_bin_lookup {
             Some(lookup) => lookup.clone(),
-            None => return Err(ScoreMatBuildErr::NoDotBins),
+            None => return Err(ScoreMatBuildErr::DotBins),
         };
         Ok((dist_lookup_args, dot_lookup_args))
     }
@@ -485,16 +495,18 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
             LookupArgs::Lookup(lookup) => Ok(lookup),
             LookupArgs::NBins(n) => {
                 let mut dists: Vec<_> = match_distdots.iter().map(|dd| dd.dist).collect();
-                BinLookup::new_n_quantiles(&mut dists, n, (true, true))
-                    .map_err(|_| ScoreMatBuildErr::NoDistBins)
+                dists.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+                BinLookup::new_n_quantiles(&dists, n, (true, true))
+                    .map_err(|_| ScoreMatBuildErr::DistBins)
             }
         }?;
         let dot_bin_lookup = match dot_lookup_args {
             LookupArgs::Lookup(lookup) => Ok(lookup),
             LookupArgs::NBins(n) => {
                 let mut dots: Vec<_> = match_distdots.iter().map(|dd| dd.dot).collect();
-                BinLookup::new_n_quantiles(&mut dots, n, (true, true))
-                    .map_err(|_| ScoreMatBuildErr::NoDotBins)
+                dots.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+                BinLookup::new_n_quantiles(&dots, n, (true, true))
+                    .map_err(|_| ScoreMatBuildErr::DotBins)
             }
         }?;
 
@@ -505,10 +517,12 @@ impl<T: TargetNeuron + Sync> ScoreMatrixBuilder<T> {
     /// `table_to_fn`.
     pub fn build(&self) -> Result<RangeTable<Precision, Precision>, ScoreMatBuildErr> {
         if self.sampler.matching_sets.is_empty() {
-            return Err(ScoreMatBuildErr::NoMatchingSets);
+            return Err(ScoreMatBuildErr::MatchingSets);
         }
 
-        let (match_jobs, nonmatch_jobs) = self.sampler.make_jobs(None, None);
+        let (match_jobs, nonmatch_jobs) = self
+            .sampler
+            .make_jobs(self.max_matching_pairs, self.max_nonmatching_pairs);
 
         let match_distdots = self._all_distdots(&match_jobs.into_iter().collect::<Vec<_>>());
 

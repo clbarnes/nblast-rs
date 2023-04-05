@@ -1,3 +1,4 @@
+//! Neuron types using the [nabo](https://crates.io/crates/nabo) crate as a backend.
 use super::{Neuron, QueryNeuron, TargetNeuron};
 use crate::{
     centroid, geometric_mean, DistDot, Normal3, Point3, Precision, ScoreCalc, TangentAlpha,

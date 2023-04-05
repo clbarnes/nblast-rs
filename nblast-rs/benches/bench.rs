@@ -1,12 +1,15 @@
-use std::fs::File;
+use std::collections::HashSet;
+use std::iter::repeat_with;
 use std::path::PathBuf;
+use std::{f64::consts::PI, fs::File};
 
 use bencher::{benchmark_group, benchmark_main, Bencher};
 use csv::ReaderBuilder;
+use fastrand::Rng;
 
 use nblast::{
-    NblastArena, Neuron, Point3, Precision, QueryNeuron, RStarTangentsAlphas, RangeTable,
-    ScoreCalc, TangentAlpha,
+    BinLookup, NblastArena, Neuron, Point3, Precision, QueryNeuron, RStarTangentsAlphas,
+    RangeTable, ScoreCalc, ScoreMatrixBuilder, TangentAlpha,
 };
 
 #[cfg(feature = "nabo")]
@@ -76,6 +79,95 @@ fn read_points(name: &str) -> Vec<Point3> {
     }
 
     out
+}
+
+fn read_all_points() -> Vec<Vec<Point3>> {
+    NAMES.iter().map(|n| read_points(n)).collect()
+}
+
+fn match_nonmatch(repeats: usize) -> (Vec<Vec<Point3>>, Vec<Vec<usize>>, Vec<Vec<usize>>) {
+    let n_csvs = NAMES.len();
+    let mut out_points = Vec::with_capacity(n_csvs * repeats);
+    let all_points = read_all_points();
+
+    let mut matches: Vec<Vec<usize>> = repeat_with(|| Vec::with_capacity(repeats))
+        .take(n_csvs)
+        .collect();
+    let mut nonmatches: Vec<Vec<usize>> = repeat_with(|| Vec::with_capacity(n_csvs))
+        .take(repeats)
+        .collect();
+
+    let rng = Rng::with_seed(1991);
+
+    for rep in 0..repeats {
+        let aug = PointAug::new_random(
+            0.5,  // 500nm
+            0.02, // 20nm
+            &rng,
+        );
+        let offset = rep * repeats;
+
+        for (p_idx, ps) in all_points.iter().enumerate() {
+            let global_p_idx = offset + p_idx;
+            out_points.push(aug.augment_all(ps));
+            matches[p_idx].push(global_p_idx);
+            nonmatches[rep].push(global_p_idx);
+        }
+    }
+
+    (out_points, matches, nonmatches)
+}
+
+struct PointAug<'a> {
+    rng: &'a Rng,
+    translation: Point3,
+    jitter_stdev: Precision,
+}
+
+fn box_muller_sin(u1: Precision, u2: Precision) -> Precision {
+    (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).sin()
+}
+
+fn random_translation(rng: &Rng, stdev: Precision) -> Point3 {
+    let u1 = rng.f64();
+    let u2 = rng.f64();
+    let u3 = rng.f64();
+    [
+        box_muller_sin(u1, u2) * stdev,
+        box_muller_sin(u2, u3) * stdev,
+        box_muller_sin(u1, u3) * stdev,
+    ]
+}
+
+impl<'a> PointAug<'a> {
+    fn new(translation: Point3, jitter_stdev: Precision, rng: &'a Rng) -> Self {
+        Self {
+            rng,
+            translation,
+            jitter_stdev,
+        }
+    }
+
+    fn new_random(translation_stdev: Precision, jitter_stdev: Precision, rng: &'a Rng) -> Self {
+        Self::new(
+            random_translation(rng, translation_stdev),
+            jitter_stdev,
+            rng,
+        )
+    }
+
+    fn augment(&self, orig: &Point3) -> Point3 {
+        let t2 = random_translation(self.rng, self.jitter_stdev);
+        [
+            orig[0] + self.translation[0] + t2[0],
+            orig[1] + self.translation[1] + t2[1],
+            orig[2] + self.translation[2] + t2[2],
+        ]
+    }
+
+    fn augment_all(&self, orig: &[Point3]) -> Vec<Point3> {
+        orig.iter().map(|p| self.augment(p)).collect()
+    }
 }
 
 fn parse_interval(s: &str) -> (f64, f64) {
@@ -201,7 +293,7 @@ fn bench_arena_construction(b: &mut Bencher) {
         .map(|n| RStarTangentsAlphas::new(&read_points(n), N_NEIGHBORS).expect("couldn't parse"))
         .collect();
     b.iter(|| {
-        let mut arena = NblastArena::new(score_fn.clone());
+        let mut arena = NblastArena::new(score_fn.clone(), false);
         for dp in pointtangents.iter().cloned() {
             arena.add_neuron(dp);
         }
@@ -209,7 +301,7 @@ fn bench_arena_construction(b: &mut Bencher) {
 }
 
 fn bench_arena_query(b: &mut Bencher) {
-    let mut arena = NblastArena::new(get_score_fn());
+    let mut arena = NblastArena::new(get_score_fn(), false);
     let p0 = read_points(NAMES[0]);
     let idx0 =
         arena.add_neuron(RStarTangentsAlphas::new(&p0, N_NEIGHBORS).expect("couldn't parse"));
@@ -217,11 +309,11 @@ fn bench_arena_query(b: &mut Bencher) {
     let idx1 =
         arena.add_neuron(RStarTangentsAlphas::new(&p1, N_NEIGHBORS).expect("couldn't parse"));
 
-    b.iter(|| arena.query_target(idx0, idx1, false, &None, false));
+    b.iter(|| arena.query_target(idx0, idx1, false, &None));
 }
 
 fn bench_arena_query_norm(b: &mut Bencher) {
-    let mut arena = NblastArena::new(get_score_fn());
+    let mut arena = NblastArena::new(get_score_fn(), false);
     let p0 = read_points(NAMES[0]);
     let idx0 =
         arena.add_neuron(RStarTangentsAlphas::new(&p0, N_NEIGHBORS).expect("couldn't parse"));
@@ -229,11 +321,11 @@ fn bench_arena_query_norm(b: &mut Bencher) {
     let idx1 =
         arena.add_neuron(RStarTangentsAlphas::new(&p1, N_NEIGHBORS).expect("couldn't parse"));
 
-    b.iter(|| arena.query_target(idx0, idx1, true, &None, false));
+    b.iter(|| arena.query_target(idx0, idx1, true, &None));
 }
 
 fn bench_arena_query_geom(b: &mut Bencher) {
-    let mut arena = NblastArena::new(get_score_fn());
+    let mut arena = NblastArena::new(get_score_fn(), false);
     let p0 = read_points(NAMES[0]);
     let idx0 =
         arena.add_neuron(RStarTangentsAlphas::new(&p0, N_NEIGHBORS).expect("couldn't parse"));
@@ -241,19 +333,11 @@ fn bench_arena_query_geom(b: &mut Bencher) {
     let idx1 =
         arena.add_neuron(RStarTangentsAlphas::new(&p1, N_NEIGHBORS).expect("couldn't parse"));
 
-    b.iter(|| {
-        arena.query_target(
-            idx0,
-            idx1,
-            false,
-            &Some(nblast::Symmetry::GeometricMean),
-            false,
-        )
-    });
+    b.iter(|| arena.query_target(idx0, idx1, false, &Some(nblast::Symmetry::GeometricMean)));
 }
 
 fn bench_arena_query_norm_geom(b: &mut Bencher) {
-    let mut arena = NblastArena::new(get_score_fn());
+    let mut arena = NblastArena::new(get_score_fn(), false);
     let p0 = read_points(NAMES[0]);
     let idx0 =
         arena.add_neuron(RStarTangentsAlphas::new(&p0, N_NEIGHBORS).expect("couldn't parse"));
@@ -261,19 +345,11 @@ fn bench_arena_query_norm_geom(b: &mut Bencher) {
     let idx1 =
         arena.add_neuron(RStarTangentsAlphas::new(&p1, N_NEIGHBORS).expect("couldn't parse"));
 
-    b.iter(|| {
-        arena.query_target(
-            idx0,
-            idx1,
-            true,
-            &Some(nblast::Symmetry::GeometricMean),
-            false,
-        )
-    });
+    b.iter(|| arena.query_target(idx0, idx1, true, &Some(nblast::Symmetry::GeometricMean)));
 }
 
 fn bench_all_to_all_serial_rstar(b: &mut Bencher) {
-    let mut arena = NblastArena::new(get_score_fn());
+    let mut arena = NblastArena::new(get_score_fn(), false);
     let mut idxs = Vec::new();
     for name in NAMES.iter() {
         let points = read_points(name);
@@ -284,23 +360,23 @@ fn bench_all_to_all_serial_rstar(b: &mut Bencher) {
         );
     }
 
-    b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, false, None, None));
+    b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, None));
 }
 
 fn bench_all_to_all_serial_nabo(b: &mut Bencher) {
-    let mut arena = NblastArena::new(get_score_fn());
+    let mut arena = NblastArena::new(get_score_fn(), false);
     let mut idxs = Vec::new();
     for name in NAMES.iter() {
         let points = read_points(name);
         idxs.push(arena.add_neuron(NaboTangentsAlphas::new(points, N_NEIGHBORS)));
     }
 
-    b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, false, None, None));
+    b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, None));
 }
 
 #[cfg(feature = "parallel")]
 fn bench_all_to_all_parallel(b: &mut Bencher) {
-    let mut arena = NblastArena::new(get_score_fn());
+    let mut arena = NblastArena::new(get_score_fn(), false).with_threads(0);
     let mut idxs = Vec::new();
     for name in NAMES.iter() {
         let points = read_points(name);
@@ -311,7 +387,55 @@ fn bench_all_to_all_parallel(b: &mut Bencher) {
         );
     }
 
-    b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, false, Some(0), None));
+    b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, None));
+}
+
+fn make_smatb_rstar() -> ScoreMatrixBuilder<RStarTangentsAlphas> {
+    let (all_points, matches, nonmatches) = match_nonmatch(10);
+    let neurons: Vec<_> = all_points
+        .iter()
+        .map(|ps| RStarTangentsAlphas::new(ps, N_NEIGHBORS).unwrap())
+        .collect();
+
+    let mut smatb = ScoreMatrixBuilder::new(neurons.clone(), 1991);
+    for m in matches.iter() {
+        smatb.add_matching_set(m);
+    }
+    for nm in nonmatches.iter() {
+        smatb.add_nonmatching_set(nm);
+    }
+    smatb
+}
+
+fn bench_smatbuild_rstar_ser(b: &mut Bencher) {
+    let mut smatb = make_smatb_rstar();
+    let (dist, dot, _cells) = read_smat();
+    smatb.set_dot_lookup(BinLookup::new(dot, (true, true)).unwrap());
+    smatb.set_dist_lookup(BinLookup::new(dist, (true, true)).unwrap());
+
+    b.iter(|| smatb.build())
+}
+
+fn bench_smatbuild_rstar_par(b: &mut Bencher) {
+    let mut smatb = make_smatb_rstar();
+    let (dist, dot, _cells) = read_smat();
+
+    smatb.set_dot_lookup(BinLookup::new(dot, (true, true)).unwrap());
+    smatb.set_dist_lookup(BinLookup::new(dist, (true, true)).unwrap());
+
+    smatb.set_threads(Some(0));
+
+    b.iter(|| smatb.build())
+}
+
+fn bench_smatbuild_rstar_quantiles(b: &mut Bencher) {
+    let mut smatb = make_smatb_rstar();
+    let (dist, dot, _cells) = read_smat();
+
+    smatb.set_n_dot_bins(dot.len() - 1);
+    smatb.set_n_dist_bins(dist.len() - 1);
+
+    b.iter(|| smatb.build())
 }
 
 benchmark_group!(
@@ -337,7 +461,14 @@ benchmark_group!(
     bench_arena_query_geom,
     bench_arena_query_norm_geom,
     bench_all_to_all_parallel,
-    bench_arena_construction
+    bench_arena_construction,
 );
 
-benchmark_main!(impl_rstar, impl_nabo, arena);
+benchmark_group!(
+    smat,
+    bench_smatbuild_rstar_ser,
+    bench_smatbuild_rstar_par,
+    bench_smatbuild_rstar_quantiles,
+);
+
+benchmark_main!(impl_rstar, impl_nabo, arena, smat);

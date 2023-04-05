@@ -471,6 +471,7 @@ impl<N: QueryNeuron> NeuronSelfHit<N> {
     }
 }
 
+/// Different ways of converting point match statistics into a single score.
 #[derive(Debug, Clone)]
 pub enum ScoreCalc {
     // Func(Box<dyn Fn(&DistDot) -> Precision + Sync>),
@@ -493,6 +494,8 @@ where
 {
     neurons_scores: Vec<NeuronSelfHit<N>>,
     score_calc: ScoreCalc,
+    use_alpha: bool,
+    threads: Option<usize>,
 }
 
 pub type NeuronIdx = usize;
@@ -501,10 +504,25 @@ impl<N> NblastArena<N>
 where
     N: TargetNeuron + Sync,
 {
-    pub fn new(score_calc: ScoreCalc) -> Self {
+    /// By default, runs in serial.
+    /// See `NblastArena.with_threads` if the "parallel" feature is enabled.
+    pub fn new(score_calc: ScoreCalc, use_alpha: bool) -> Self {
         Self {
             neurons_scores: Vec::default(),
             score_calc,
+            use_alpha,
+            threads: None,
+        }
+    }
+
+    /// 0 means use all available.
+    #[cfg(feature = "parallel")]
+    pub fn with_threads(self, threads: usize) -> Self {
+        Self {
+            neurons_scores: self.neurons_scores,
+            score_calc: self.score_calc,
+            use_alpha: self.use_alpha,
+            threads: Some(threads),
         }
     }
 
@@ -533,20 +551,19 @@ where
         target_idx: NeuronIdx,
         normalize: bool,
         symmetry: &Option<Symmetry>,
-        use_alpha: bool,
     ) -> Option<Precision> {
         // ? consider separate methods
         let q = self.neurons_scores.get(query_idx)?;
         let t = self.neurons_scores.get(target_idx)?;
-        let mut score = q.neuron.query(&t.neuron, use_alpha, &self.score_calc);
+        let mut score = q.neuron.query(&t.neuron, self.use_alpha, &self.score_calc);
         if normalize {
-            score /= q.score(use_alpha)
+            score /= q.score(self.use_alpha)
         }
         match symmetry {
             Some(s) => {
-                let mut score2 = t.neuron.query(&q.neuron, use_alpha, &self.score_calc);
+                let mut score2 = t.neuron.query(&q.neuron, self.use_alpha, &self.score_calc);
                 if normalize {
-                    score2 /= t.score(use_alpha);
+                    score2 /= t.score(self.use_alpha);
                 }
                 Some(s.apply(score, score2))
             }
@@ -567,8 +584,6 @@ where
         target_idxs: &[NeuronIdx],
         normalize: bool,
         symmetry: &Option<Symmetry>,
-        use_alpha: bool,
-        threads: Option<usize>,
         max_centroid_dist: Option<Precision>,
     ) -> HashMap<(NeuronIdx, NeuronIdx), Precision> {
         let mut out = HashMap::with_capacity(query_idxs.len() * target_idxs.len());
@@ -585,7 +600,14 @@ where
                 let key = (*q_idx, *t_idx);
                 if q_idx == t_idx {
                     if let Some(ns) = self.neurons_scores.get(*q_idx) {
-                        out.insert(key, if normalize { 1.0 } else { ns.score(use_alpha) });
+                        out.insert(
+                            key,
+                            if normalize {
+                                1.0
+                            } else {
+                                ns.score(self.use_alpha)
+                            },
+                        );
                     };
                     continue;
                 }
@@ -608,7 +630,7 @@ where
         }
 
         let jobs_vec: Vec<_> = jobs.into_iter().collect();
-        let raw = pairs_to_raw(self, &jobs_vec, normalize, use_alpha, threads);
+        let raw = pairs_to_raw(self, &jobs_vec, normalize);
 
         for key in out_keys.into_iter() {
             if let Some(forward) = raw.get(&key) {
@@ -649,20 +671,10 @@ where
         &self,
         normalize: bool,
         symmetry: &Option<Symmetry>,
-        use_alpha: bool,
-        threads: Option<usize>,
         max_centroid_dist: Option<Precision>,
     ) -> HashMap<(NeuronIdx, NeuronIdx), Precision> {
         let idxs: Vec<NeuronIdx> = (0..self.len()).collect();
-        self.queries_targets(
-            &idxs,
-            &idxs,
-            normalize,
-            symmetry,
-            use_alpha,
-            threads,
-            max_centroid_dist,
-        )
+        self.queries_targets(&idxs, &idxs, normalize, symmetry, max_centroid_dist)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -691,13 +703,12 @@ fn pairs_to_raw_serial<N: TargetNeuron + Sync>(
     arena: &NblastArena<N>,
     pairs: &[(NeuronIdx, NeuronIdx)],
     normalize: bool,
-    use_alpha: bool,
 ) -> HashMap<(NeuronIdx, NeuronIdx), Precision> {
     pairs
         .iter()
         .filter_map(|(q_idx, t_idx)| {
             arena
-                .query_target(*q_idx, *t_idx, normalize, &None, use_alpha)
+                .query_target(*q_idx, *t_idx, normalize, &None)
                 .map(|s| ((*q_idx, *t_idx), s))
         })
         .collect()
@@ -708,13 +719,11 @@ fn pairs_to_raw<N>(
     arena: &NblastArena<N>,
     pairs: &[(NeuronIdx, NeuronIdx)],
     normalize: bool,
-    use_alpha: bool,
-    _threads: Option<usize>,
 ) -> HashMap<(NeuronIdx, NeuronIdx), Precision>
 where
     N: TargetNeuron + Sync,
 {
-    pairs_to_raw_serial(arena, pairs, normalize, use_alpha)
+    pairs_to_raw_serial(arena, pairs, normalize)
 }
 
 #[cfg(feature = "parallel")]
@@ -722,10 +731,8 @@ fn pairs_to_raw<N: TargetNeuron + Sync>(
     arena: &NblastArena<N>,
     pairs: &[(NeuronIdx, NeuronIdx)],
     normalize: bool,
-    use_alpha: bool,
-    threads: Option<usize>,
 ) -> HashMap<(NeuronIdx, NeuronIdx), Precision> {
-    if let Some(t) = threads {
+    if let Some(t) = arena.threads {
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(t)
             .build()
@@ -735,13 +742,13 @@ fn pairs_to_raw<N: TargetNeuron + Sync>(
                 .par_iter()
                 .filter_map(|(q_idx, t_idx)| {
                     arena
-                        .query_target(*q_idx, *t_idx, normalize, &None, use_alpha)
+                        .query_target(*q_idx, *t_idx, normalize, &None)
                         .map(|s| ((*q_idx, *t_idx), s))
                 })
                 .collect()
         })
     } else {
-        pairs_to_raw_serial(arena, pairs, normalize, use_alpha)
+        pairs_to_raw_serial(arena, pairs, normalize)
     }
 }
 
@@ -992,38 +999,30 @@ mod test {
         )
         .expect("Construction failed");
 
-        let mut arena = NblastArena::new(score_calc);
+        let mut arena = NblastArena::new(score_calc, false);
         let q_idx = arena.add_neuron(query);
         let t_idx = arena.add_neuron(target);
 
         let no_norm = arena
-            .query_target(q_idx, t_idx, false, &None, false)
+            .query_target(q_idx, t_idx, false, &None)
             .expect("should exist");
         let self_hit = arena
-            .query_target(q_idx, q_idx, false, &None, false)
+            .query_target(q_idx, q_idx, false, &None)
             .expect("should exist");
 
         assert!(
             arena
-                .query_target(q_idx, t_idx, true, &None, false)
+                .query_target(q_idx, t_idx, true, &None)
                 .expect("should exist")
                 - no_norm / self_hit
                 < EPSILON
         );
         assert_eq!(
-            arena.query_target(q_idx, t_idx, false, &Some(Symmetry::ArithmeticMean), false),
-            arena.query_target(t_idx, q_idx, false, &Some(Symmetry::ArithmeticMean), false),
+            arena.query_target(q_idx, t_idx, false, &Some(Symmetry::ArithmeticMean)),
+            arena.query_target(t_idx, q_idx, false, &Some(Symmetry::ArithmeticMean)),
         );
 
-        let out = arena.queries_targets(
-            &[q_idx, t_idx],
-            &[t_idx, q_idx],
-            false,
-            &None,
-            false,
-            None,
-            None,
-        );
+        let out = arena.queries_targets(&[q_idx, t_idx], &[t_idx, q_idx], false, &None, None);
         assert_eq!(out.len(), 4);
     }
 

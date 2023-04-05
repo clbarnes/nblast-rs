@@ -1,3 +1,4 @@
+//! Neurites which can be queried against each other.
 use crate::{centroid, DistDot, Normal3, Point3, Precision, ScoreCalc};
 
 // pub mod fnntw;

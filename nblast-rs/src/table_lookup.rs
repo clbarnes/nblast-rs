@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+//! Utilities relating to converting point match values (distance and dot product of tangents) into a score using a lookup table.
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Debug;
@@ -33,28 +33,24 @@ impl std::error::Error for OutOfBins {
 }
 
 #[derive(Debug, PartialEq, Eq, Error)]
-pub enum IllegalBinBoundaries {
+pub enum BinLookupBuildError {
     #[error("Bin boundary order is not ascending")]
     NotAscending,
     #[error("Bin boundaries must have >=2 values, got {0}")]
     NotEnough(usize),
 }
 
-fn is_monotonic_ascending<T: PartialOrd>(values: &[T]) -> bool {
-    let all_cmps: Vec<_> = values.windows(2).map(|w| w[0].partial_cmp(&w[1])).collect();
-    // window implementation useful for direction-independent monotonicity check
-    for cmps in all_cmps.windows(2) {
-        if let Some(a) = cmps[0] {
-            if let Some(b) = cmps[1] {
-                if a == Ordering::Greater || a != b {
-                    return false;
-                }
+fn is_ascending<T: PartialOrd>(values: &[T], strict: bool) -> bool {
+    values
+        .windows(2)
+        .map(|w| w[1].partial_cmp(&w[0]))
+        .all(|cmp| {
+            if strict {
+                cmp.map_or(false, |c| c.is_gt())
+            } else {
+                cmp.map_or(false, |c| c.is_ge())
             }
-        } else {
-            return false;
-        }
-    }
-    true
+        })
 }
 
 #[derive(Debug, Clone)]
@@ -67,12 +63,12 @@ pub struct BinLookup<T: PartialOrd + Clone + Debug> {
 impl<T: PartialOrd + Copy + Debug> BinLookup<T> {
     /// `bin_boundaries` must be sorted ascending and have length > 2.
     /// `snap` is a tuple of whether to clamp values beyond the left and the right bin boundary respectively.
-    pub fn new(bin_boundaries: Vec<T>, snap: (bool, bool)) -> Result<Self, IllegalBinBoundaries> {
+    pub fn new(bin_boundaries: Vec<T>, snap: (bool, bool)) -> Result<Self, BinLookupBuildError> {
         if bin_boundaries.len() < 2 {
-            return Err(IllegalBinBoundaries::NotEnough(bin_boundaries.len()));
+            return Err(BinLookupBuildError::NotEnough(bin_boundaries.len()));
         }
-        if !is_monotonic_ascending(&bin_boundaries) {
-            return Err(IllegalBinBoundaries::NotAscending);
+        if !is_ascending(&bin_boundaries, true) {
+            return Err(BinLookupBuildError::NotAscending);
         }
         let n_bins = bin_boundaries.len() - 1;
 
@@ -133,7 +129,7 @@ impl BinLookup<Precision> {
         max: Precision,
         n_bins: usize,
         snap: (bool, bool),
-    ) -> Result<Self, IllegalBinBoundaries> {
+    ) -> Result<Self, BinLookupBuildError> {
         let n_bounds = n_bins + 1;
         let step = (max - min) / n_bounds as f64;
         Self::new(
@@ -151,7 +147,7 @@ impl BinLookup<Precision> {
         max_exp: Precision,
         n_bins: usize,
         snap: (bool, bool),
-    ) -> Result<Self, IllegalBinBoundaries> {
+    ) -> Result<Self, BinLookupBuildError> {
         let n_bounds = n_bins + 1;
         let step = (max_exp - min_exp) / n_bins as Precision;
 
@@ -161,43 +157,52 @@ impl BinLookup<Precision> {
         Self::new(bounds, snap)
     }
 
-    /// Create a BinLookup whose boundaries are the quantiles of some data.
-    /// `quantiles` must be within `[0, 1]`.
+    /// Create a BinLookup whose boundaries are the quantiles of some data,
+    /// which must be sorted in ascending order (this is checked).
+    /// `quantiles` must be within `[0, 1]` and sorted ascending (also checked).
     /// `snap` is as in `BinLookup::new`.
     pub fn new_quantiles(
-        data: &mut [Precision],
+        sorted_data: &[Precision],
         quantiles: &[Precision],
         snap: (bool, bool),
-    ) -> Result<BinLookup<Precision>, IllegalBinBoundaries> {
-        // todo: much less memory required with an approximate streaming implementation
-        data.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let len = data.len() as f64 - 1.0;
+    ) -> Result<BinLookup<Precision>, BinLookupBuildError> {
+        if !is_ascending(quantiles, true) {
+            return Err(BinLookupBuildError::NotAscending);
+        }
+        // todo: much more efficient with an approximate streaming implementation
+        if !is_ascending(sorted_data, false) {
+            return Err(BinLookupBuildError::NotAscending);
+        }
+        let len = sorted_data.len() as f64 - 1.0;
         let bounds = quantiles
             .iter()
             .map(|q| {
                 let frac_idx = len * q;
                 let fl = frac_idx.floor();
-                let min = data[fl as usize];
+                let min = sorted_data[fl as usize];
                 if fl == frac_idx {
                     return min;
                 }
                 let ce = frac_idx.ceil();
-                let max = data[ce as usize];
+                let max = sorted_data[ce as usize];
                 interp(min, max, frac_idx - fl)
             })
             .collect();
         Self::new(bounds, snap)
     }
 
+    /// Create a BinLookup whose boundaries are the quantiles of some (sorted ascending) data,
+    /// evenly spaced within `[0, 1]`.
+    /// `snap` is as in `BinLookup::new`.
     pub fn new_n_quantiles(
-        data: &mut [Precision],
+        data: &[Precision],
         n_bins: usize,
         snap: (bool, bool),
-    ) -> Result<BinLookup<Precision>, IllegalBinBoundaries> {
+    ) -> Result<BinLookup<Precision>, BinLookupBuildError> {
         let n_bounds = n_bins + 1;
         let step = 1.0 / n_bounds as f64;
-        let mut quantiles: Vec<_> = (0..n_bounds).map(|n| step * n as Precision).collect();
-        Self::new_quantiles(data, &mut quantiles, snap)
+        let quantiles: Vec<_> = (0..n_bounds).map(|n| step * n as Precision).collect();
+        Self::new_quantiles(data, &quantiles, snap)
     }
 }
 
@@ -269,7 +274,7 @@ pub struct RangeTable<I: PartialOrd + Clone + Debug, T> {
 #[derive(Error, Debug)]
 pub enum InvalidRangeTable {
     #[error("Illegal bin boundaries")]
-    IllegalBinBoundaries(#[from] IllegalBinBoundaries),
+    IllegalBinBoundaries(#[from] BinLookupBuildError),
     #[error("Mismatched cell count: expected {expected:?} cells and got {got:?}")]
     MismatchedCellCount { expected: usize, got: usize },
 }
