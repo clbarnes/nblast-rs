@@ -62,6 +62,8 @@ use std::collections::{HashMap, HashSet};
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+#[cfg(feature = "parallel")]
+pub use rayon;
 
 pub use nalgebra;
 
@@ -447,27 +449,21 @@ impl Location for &Point3 {
 struct NeuronSelfHit<N: QueryNeuron> {
     neuron: N,
     self_hit: Precision,
-    self_hit_alpha: Precision,
     centroid: [Precision; 3],
 }
 
 impl<N: QueryNeuron> NeuronSelfHit<N> {
-    fn new(neuron: N, self_hit: Precision, self_hit_alpha: Precision) -> Self {
+    fn new(neuron: N, self_hit: Precision) -> Self {
         let centroid = neuron.centroid();
         Self {
             neuron,
             self_hit,
-            self_hit_alpha,
             centroid,
         }
     }
 
-    fn score(&self, use_alpha: bool) -> Precision {
-        if use_alpha {
-            self.self_hit_alpha
-        } else {
-            self.self_hit
-        }
+    fn score(&self) -> Precision {
+        self.self_hit
     }
 }
 
@@ -533,10 +529,9 @@ where
     /// Returns an index which is then used to make queries.
     pub fn add_neuron(&mut self, neuron: N) -> NeuronIdx {
         let idx = self.next_id();
-        let self_hit = neuron.self_hit(&self.score_calc, false);
-        let self_hit_alpha = neuron.self_hit(&self.score_calc, true);
+        let self_hit = neuron.self_hit(&self.score_calc, self.use_alpha);
         self.neurons_scores
-            .push(NeuronSelfHit::new(neuron, self_hit, self_hit_alpha));
+            .push(NeuronSelfHit::new(neuron, self_hit));
         idx
     }
 
@@ -557,13 +552,13 @@ where
         let t = self.neurons_scores.get(target_idx)?;
         let mut score = q.neuron.query(&t.neuron, self.use_alpha, &self.score_calc);
         if normalize {
-            score /= q.score(self.use_alpha)
+            score /= q.score()
         }
         match symmetry {
             Some(s) => {
                 let mut score2 = t.neuron.query(&q.neuron, self.use_alpha, &self.score_calc);
                 if normalize {
-                    score2 /= t.score(self.use_alpha);
+                    score2 /= t.score();
                 }
                 Some(s.apply(score, score2))
             }
@@ -600,14 +595,7 @@ where
                 let key = (*q_idx, *t_idx);
                 if q_idx == t_idx {
                     if let Some(ns) = self.neurons_scores.get(*q_idx) {
-                        out.insert(
-                            key,
-                            if normalize {
-                                1.0
-                            } else {
-                                ns.score(self.use_alpha)
-                            },
-                        );
+                        out.insert(key, if normalize { 1.0 } else { ns.score() });
                     };
                     continue;
                 }
@@ -661,8 +649,8 @@ where
         })
     }
 
-    pub fn self_hit(&self, idx: NeuronIdx, use_alpha: bool) -> Option<Precision> {
-        self.neurons_scores.get(idx).map(|n| n.score(use_alpha))
+    pub fn self_hit(&self, idx: NeuronIdx) -> Option<Precision> {
+        self.neurons_scores.get(idx).map(|n| n.score())
     }
 
     /// Query every neuron against every other neuron.
