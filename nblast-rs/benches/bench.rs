@@ -1,6 +1,6 @@
+use std::fs::File;
 use std::iter::repeat_with;
 use std::path::PathBuf;
-use std::fs::File;
 
 use bencher::{benchmark_group, benchmark_main, Bencher};
 use csv::ReaderBuilder;
