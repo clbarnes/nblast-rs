@@ -57,10 +57,7 @@ impl ArenaWrapper {
         if let Some(t) = threads {
             arena = arena.with_threads(t);
         }
-        Ok(Self {
-            arena,
-            k,
-        })
+        Ok(Self { arena, k })
     }
 
     pub fn add_points(&mut self, py: Python, points: Vec<Vec<f64>>) -> PyResult<usize> {
@@ -156,9 +153,7 @@ impl ArenaWrapper {
             })?),
             _ => None,
         };
-        Ok(self
-            .arena
-            .all_v_all(normalize, &sym, max_centroid_dist))
+        Ok(self.arena.all_v_all(normalize, &sym, max_centroid_dist))
     }
 
     pub fn len(&self) -> usize {

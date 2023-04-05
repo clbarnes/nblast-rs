@@ -69,6 +69,7 @@ impl NblastArena {
         dot_thresholds: &[f64],
         cells: &[f64],
         k: usize,
+        use_alpha: bool,
     ) -> JsResult<NblastArena> {
         let rtable = RangeTable::new_from_bins(
             vec![dist_thresholds.to_vec(), dot_thresholds.to_vec()],
@@ -77,7 +78,7 @@ impl NblastArena {
         .map_err(to_js_err)?;
         let score_calc = ScoreCalc::Table(rtable);
         Ok(Self {
-            arena: nblast::NblastArena::new(score_calc),
+            arena: nblast::NblastArena::new(score_calc, use_alpha),
             k,
         })
     }
@@ -117,12 +118,11 @@ impl NblastArena {
         target_idx: NeuronIdx,
         normalize: bool,
         symmetry: Option<JsString>,
-        use_alpha: bool,
     ) -> JsResult<Option<f64>> {
         let sym = parse_symmetry(symmetry)?;
         Ok(self
             .arena
-            .query_target(query_idx, target_idx, normalize, &sym, use_alpha))
+            .query_target(query_idx, target_idx, normalize, &sym))
     }
 
     #[wasm_bindgen(js_name = "queriesTargets")]
@@ -132,7 +132,6 @@ impl NblastArena {
         target_idxs: &[NeuronIdx],
         normalize: bool,
         symmetry: Option<JsString>,
-        use_alpha: bool,
         max_centroid_dist: Option<Precision>,
     ) -> JsResult<JsValue> {
         let sym = parse_symmetry(symmetry)?;
@@ -141,8 +140,6 @@ impl NblastArena {
             target_idxs,
             normalize,
             &sym,
-            use_alpha,
-            None,
             max_centroid_dist,
         ));
         Ok(serde_wasm_bindgen::to_value(&out)?)
@@ -153,17 +150,10 @@ impl NblastArena {
         &self,
         normalize: bool,
         symmetry: Option<JsString>,
-        use_alpha: bool,
         max_centroid_dist: Option<Precision>,
     ) -> JsResult<JsValue> {
         let sym = parse_symmetry(symmetry)?;
-        let out = convert_multi_output(self.arena.all_v_all(
-            normalize,
-            &sym,
-            use_alpha,
-            None,
-            max_centroid_dist,
-        ));
+        let out = convert_multi_output(self.arena.all_v_all(normalize, &sym, max_centroid_dist));
         Ok(serde_wasm_bindgen::to_value(&out)?)
     }
 }
