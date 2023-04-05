@@ -1,7 +1,6 @@
-use std::collections::HashSet;
 use std::iter::repeat_with;
 use std::path::PathBuf;
-use std::{f64::consts::PI, fs::File};
+use std::fs::File;
 
 use bencher::{benchmark_group, benchmark_main, Bencher};
 use csv::ReaderBuilder;
