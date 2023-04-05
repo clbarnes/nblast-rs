@@ -6,6 +6,8 @@ use std::fmt::Debug;
 
 use thiserror::Error;
 
+use crate::Precision;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum OutOfBin {
     Before,
@@ -93,8 +95,9 @@ pub struct BinLookup<T: PartialOrd + Clone + Debug> {
     pub n_bins: usize,
 }
 
-/// `bin_boundaries` must be sorted ascending and have length > 2
 impl<T: PartialOrd + Copy + Debug> BinLookup<T> {
+    /// `bin_boundaries` must be sorted ascending and have length > 2.
+    /// `snap` is a tuple of whether to clamp values beyond the left and the right bin boundary respectively.
     pub fn new(bin_boundaries: Vec<T>, snap: (bool, bool)) -> Result<Self, IllegalBinBoundaries> {
         if bin_boundaries.len() < 2 {
             return Err(IllegalBinBoundaries::NotEnough);
@@ -111,6 +114,7 @@ impl<T: PartialOrd + Copy + Debug> BinLookup<T> {
         })
     }
 
+    /// If snap = (true, true), result will always be `Ok`
     pub fn to_idx(&self, val: &T) -> Result<usize, OutOfBin> {
         // this implementation could be much simpler
         // if it will only ever need to support ascending sorts,
@@ -150,6 +154,75 @@ impl<T: PartialOrd + Copy + Debug> BinLookup<T> {
             }
         }
     }
+}
+
+impl BinLookup<Precision> {
+    /// Create a BinLookup whose boundaries are linearly spaced between `min` and `max`.
+    /// `snap` is as used in `BinLookup::new`.
+    pub fn new_linear(
+        min: Precision,
+        max: Precision,
+        n_bins: usize,
+        snap: (bool, bool),
+    ) -> Result<Self, IllegalBinBoundaries> {
+        let n_bounds = n_bins + 1;
+        let step = (max - min) / n_bounds as f64;
+        Self::new(
+            (0..n_bounds).map(|n| min + step * n as Precision).collect(),
+            snap,
+        )
+    }
+
+    /// Create a BinLookup whose boundaries are logarithmically spaced
+    /// between `base^min_exp` (which should be small) and `base^max_exp`.
+    /// `snap` is as in `BinLookup::new`.
+    pub fn new_log(
+        base: Precision,
+        min_exp: Precision,
+        max_exp: Precision,
+        n_bins: usize,
+        snap: (bool, bool),
+    ) -> Result<Self, IllegalBinBoundaries> {
+        let n_bounds = n_bins + 1;
+        let step = (max_exp - min_exp) / n_bins as Precision;
+
+        let bounds = (0..n_bounds)
+            .map(|idx| base.powf(min_exp + idx as Precision * step))
+            .collect();
+        Self::new(bounds, snap)
+    }
+
+    /// Create a BinLookup whose boundaries are the quantiles of some data.
+    /// `quantiles` must be within `[0, 1]`.
+    /// `snap` is as in `BinLookup::new`.
+    pub fn new_quantiles(
+        data: &mut [Precision],
+        quantiles: &[Precision],
+        snap: (bool, bool),
+    ) -> Result<BinLookup<Precision>, IllegalBinBoundaries> {
+        // todo: much less memory required with an approximate streaming implementation
+        data.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let len = data.len() as f64 - 1.0;
+        let bounds = quantiles
+            .iter()
+            .map(|q| {
+                let frac_idx = len * q;
+                let fl = frac_idx.floor();
+                let min = data[fl as usize];
+                if fl == frac_idx {
+                    return min;
+                }
+                let ce = frac_idx.ceil();
+                let max = data[ce as usize];
+                interp(min, max, frac_idx - fl)
+            })
+            .collect();
+        Self::new(bounds, snap)
+    }
+}
+
+fn interp(min: Precision, max: Precision, portion: Precision) -> Precision {
+    (max - min) * portion + min
 }
 
 #[derive(Debug, Clone)]
