@@ -19,7 +19,7 @@ class NblastArena:
         dist_bins: List[float],
         dot_bins: List[float],
         score_mat: np.ndarray,
-        use_alpha: bool,
+        use_alpha: bool = False,
         threads: Optional[int] = DEFAULT_THREADS,
         k=DEFAULT_K,
     ):
