@@ -61,9 +61,9 @@ use nalgebra::base::{Matrix3, Unit, Vector3};
 use std::collections::{HashMap, HashSet};
 
 #[cfg(feature = "parallel")]
-use rayon::prelude::*;
-#[cfg(feature = "parallel")]
 pub use rayon;
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 pub use nalgebra;
 

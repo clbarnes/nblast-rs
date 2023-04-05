@@ -71,11 +71,15 @@ class NblastArena:
         return self._impl.add_points(points.tolist())
 
     def add_points_tangents_alphas(
-        self, points: np.ndarray, tangents: np.ndarray, alphas: Optional[np.ndarray],
+        self,
+        points: np.ndarray,
+        tangents: np.ndarray,
+        alphas: Optional[np.ndarray],
     ) -> Idx:
         """Add an Nx3 point cloud representing a neuron, with pre-calculated tangents.
         Tangents must be unit-length and in the same order as the points.
-        If this arena is not using alphas, you can give `None` for the `alphas` argument.
+        If this arena is not using alphas,
+        you can give `None` for the `alphas` argument.
 
         Returns an integer index which is used to refer to that neuron later.
         """
@@ -87,12 +91,14 @@ class NblastArena:
 
         if alphas is None:
             if self.use_alpha:
-                raise ValueError("Alpha values not given, but this NblastArena uses alpha weighting")
+                raise ValueError(
+                    "Alpha values not given, but this NblastArena uses alpha weighting"
+                )
             else:
                 alphas = np.full(len(points), 1.0)
         else:
             alphas = np.asarray(alphas)
-            if alphas.shape != (len(points), ):
+            if alphas.shape != (len(points),):
                 raise ValueError("Alphas must be 1D and have same length as points")
 
         return self._impl.add_points_tangents_alphas(

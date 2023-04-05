@@ -73,5 +73,4 @@ def build_score_matrix(
     dot_inner_bounds: Optional[List[float]],
     max_matching_pairs: Optional[int],
     max_nonmatching_pairs: Optional[int],
-) -> Tuple[List[float], List[float], List[float]]:
-    ...
+) -> Tuple[List[float], List[float], List[float]]: ...

@@ -1,16 +1,16 @@
 use core::fmt::Debug;
-use std::f64::{NEG_INFINITY, INFINITY};
 use pyo3::exceptions;
 use pyo3::prelude::*;
 use std::collections::HashMap;
+use std::f64::{INFINITY, NEG_INFINITY};
 
 use neurarbor::slab_tree::{NodeId, Tree};
 use neurarbor::{edges_to_tree_with_data, resample_tree_points, Location, SpatialArbor, TopoArbor};
 
 use nblast::nalgebra::base::{Unit, Vector3};
 use nblast::{
-    NblastArena, NeuronIdx, Precision, RStarTangentsAlphas, RangeTable, ScoreCalc, Symmetry,
-    TangentAlpha, ScoreMatrixBuilder, BinLookup
+    BinLookup, NblastArena, NeuronIdx, Precision, RStarTangentsAlphas, RangeTable, ScoreCalc,
+    ScoreMatrixBuilder, Symmetry, TangentAlpha,
 };
 
 use nblast::rayon;
@@ -315,27 +315,33 @@ impl ResamplingArbor {
     }
 }
 
-fn make_neurons_many(points_list: Vec<Vec<Vec<Precision>>>, k: usize, threads: Option<usize>) -> Vec<RStarTangentsAlphas> {
+fn make_neurons_many(
+    points_list: Vec<Vec<Vec<Precision>>>,
+    k: usize,
+    threads: Option<usize>,
+) -> Vec<RStarTangentsAlphas> {
     if let Some(t) = threads {
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(t)
             .build()
             .unwrap();
         pool.install(|| {
-            points_list.into_par_iter().map(|ps| {
-                RStarTangentsAlphas::new(
-                    ps.into_iter().map(|p| vec_to_array3(&p)),
-                    k
-                ).expect("failed to construct neuron")  // todo: error handling
-            }).collect()
+            points_list
+                .into_par_iter()
+                .map(|ps| {
+                    RStarTangentsAlphas::new(ps.into_iter().map(|p| vec_to_array3(&p)), k)
+                        .expect("failed to construct neuron") // todo: error handling
+                })
+                .collect()
         })
     } else {
-        points_list.into_iter().map(|ps| {
-            RStarTangentsAlphas::new(
-                ps.into_iter().map(|p| vec_to_array3(&p)),
-                k
-            ).expect("failed to construct neuron")  // todo: error handling
-        }).collect()
+        points_list
+            .into_iter()
+            .map(|ps| {
+                RStarTangentsAlphas::new(ps.into_iter().map(|p| vec_to_array3(&p)), k)
+                    .expect("failed to construct neuron") // todo: error handling
+            })
+            .collect()
     }
 }
 
@@ -354,15 +360,12 @@ fn build_score_matrix(
     dot_n_bins: Option<usize>,
     dot_inner_bounds: Option<Vec<Precision>>,
     max_matching_pairs: Option<usize>,
-    max_nonmatching_pairs: Option<usize>
+    max_nonmatching_pairs: Option<usize>,
 ) -> (Vec<Precision>, Vec<Precision>, Vec<Precision>) {
-    py.allow_threads(||{
+    py.allow_threads(|| {
         let neurons = make_neurons_many(points, k, threads);
-        let mut smatb = ScoreMatrixBuilder::new(
-            neurons, seed
-        );
-        smatb.set_threads(threads)
-            .set_use_alpha(use_alpha);
+        let mut smatb = ScoreMatrixBuilder::new(neurons, seed);
+        smatb.set_threads(threads).set_use_alpha(use_alpha);
 
         if let Some(mmp) = max_matching_pairs {
             smatb.set_max_matching_pairs(mmp);
@@ -384,7 +387,9 @@ fn build_score_matrix(
         if let Some(mut inner) = dist_inner_bounds {
             inner.insert(0, NEG_INFINITY);
             inner.push(INFINITY);
-            smatb.set_dist_lookup(BinLookup::new(inner, (true, true)).expect("failed to build dist lookup"));
+            smatb.set_dist_lookup(
+                BinLookup::new(inner, (true, true)).expect("failed to build dist lookup"),
+            );
         } else if let Some(n) = dist_n_bins {
             smatb.set_n_dist_bins(n);
         } else {
@@ -394,7 +399,9 @@ fn build_score_matrix(
         if let Some(mut inner) = dot_inner_bounds {
             inner.insert(0, NEG_INFINITY);
             inner.push(INFINITY);
-            smatb.set_dot_lookup(BinLookup::new(inner, (true, true)).expect("failed to build dot lookup"));
+            smatb.set_dot_lookup(
+                BinLookup::new(inner, (true, true)).expect("failed to build dot lookup"),
+            );
         } else if let Some(n) = dot_n_bins {
             smatb.set_n_dot_bins(n);
         } else {
@@ -404,11 +411,7 @@ fn build_score_matrix(
         let mut table = smatb.build().expect("Failed to build score matrix");
         let dot_bounds = table.bins_lookup.lookups.pop().unwrap().bin_boundaries;
         let dist_bounds = table.bins_lookup.lookups.pop().unwrap().bin_boundaries;
-        (
-            dist_bounds,
-            dot_bounds,
-            table.cells,
-        )
+        (dist_bounds, dot_bounds, table.cells)
     })
 }
 
