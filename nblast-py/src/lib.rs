@@ -33,14 +33,12 @@ fn str_to_sym(s: &str) -> Result<Symmetry, ()> {
     }
 }
 
-#[cfg(not(test))]
 #[pyclass]
 pub struct ArenaWrapper {
     arena: NblastArena<RStarTangentsAlphas>,
     k: usize,
 }
 
-#[cfg(not(test))]
 #[pymethods]
 impl ArenaWrapper {
     #[new]
@@ -196,14 +194,12 @@ impl ArenaWrapper {
     }
 }
 
-#[cfg(not(test))]
 #[pyclass]
 struct ResamplingArbor {
     tree: Tree<(usize, [Precision; 3])>,
     tnid_to_id: HashMap<usize, NodeId>,
 }
 
-#[cfg(not(test))]
 #[pymethods]
 impl ResamplingArbor {
     #[new]
@@ -325,7 +321,6 @@ fn get_version(_py: Python) -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
-#[cfg(not(test))]
 #[pymodule]
 fn pynblast(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ArenaWrapper>()?;
