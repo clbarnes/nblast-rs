@@ -176,7 +176,7 @@ impl BinLookup<Precision> {
     /// Create a BinLookup whose boundaries are logarithmically spaced
     /// between `base^min_exp` (which should be small) and `base^max_exp`.
     /// `snap` is as in `BinLookup::new`.
-    pub fn new_log(
+    pub fn new_exp(
         base: Precision,
         min_exp: Precision,
         max_exp: Precision,
@@ -218,6 +218,17 @@ impl BinLookup<Precision> {
             })
             .collect();
         Self::new(bounds, snap)
+    }
+
+    pub fn new_n_quantiles(
+        data: &mut [Precision],
+        n_bins: usize,
+        snap: (bool, bool),
+    ) -> Result<BinLookup<Precision>, IllegalBinBoundaries> {
+        let n_bounds = n_bins + 1;
+        let step = 1.0 / n_bounds as f64;
+        let mut quantiles: Vec<_> = (0..n_bounds).map(|n| step * n as Precision).collect();
+        Self::new_quantiles(data, &mut quantiles, snap)
     }
 }
 
