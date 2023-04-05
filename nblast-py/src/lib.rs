@@ -49,12 +49,18 @@ impl ArenaWrapper {
         dot_thresholds: Vec<f64>,
         cells: Vec<f64>,
         k: usize,
+        use_alpha: bool,
+        threads: Option<usize>,
     ) -> PyResult<Self> {
         let rtable = RangeTable::new_from_bins(vec![dist_thresholds, dot_thresholds], cells)
             .map_err(|e| PyErr::new::<exceptions::PyValueError, _>(format!("{}", e)))?;
         let score_calc = ScoreCalc::Table(rtable);
+        let mut arena = NblastArena::new(score_calc, use_alpha);
+        if let Some(t) = threads {
+            arena = arena.with_threads(t);
+        }
         Ok(Self {
-            arena: NblastArena::new(score_calc),
+            arena,
             k,
         })
     }
@@ -99,7 +105,6 @@ impl ArenaWrapper {
         target_idx: NeuronIdx,
         normalize: bool,
         symmetry: Option<&str>,
-        use_alpha: bool,
     ) -> PyResult<Option<f64>> {
         py.allow_threads(|| {
             let sym = match symmetry {
@@ -110,7 +115,7 @@ impl ArenaWrapper {
             };
             Ok(self
                 .arena
-                .query_target(query_idx, target_idx, normalize, &sym, use_alpha))
+                .query_target(query_idx, target_idx, normalize, &sym))
         })
     }
 
@@ -120,8 +125,6 @@ impl ArenaWrapper {
         target_idxs: Vec<NeuronIdx>,
         normalize: bool,
         symmetry: Option<&str>,
-        use_alpha: bool,
-        threads: Option<usize>,
         max_centroid_dist: Option<Precision>,
     ) -> PyResult<HashMap<(NeuronIdx, NeuronIdx), f64>> {
         let sym = match symmetry {
@@ -138,8 +141,6 @@ impl ArenaWrapper {
             &target_idxs,
             normalize,
             &sym,
-            use_alpha,
-            threads,
             max_centroid_dist,
         ))
     }
@@ -149,8 +150,6 @@ impl ArenaWrapper {
         _py: Python,
         normalize: bool,
         symmetry: Option<&str>,
-        use_alpha: bool,
-        threads: Option<usize>,
         max_centroid_dist: Option<Precision>,
     ) -> PyResult<HashMap<(NeuronIdx, NeuronIdx), Precision>> {
         let sym = match symmetry {
@@ -161,7 +160,7 @@ impl ArenaWrapper {
         };
         Ok(self
             .arena
-            .all_v_all(normalize, &sym, use_alpha, threads, max_centroid_dist))
+            .all_v_all(normalize, &sym, max_centroid_dist))
     }
 
     pub fn len(&self) -> usize {
