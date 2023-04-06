@@ -1,4 +1,3 @@
-use core::fmt::Debug;
 use pyo3::exceptions;
 use pyo3::prelude::*;
 use std::collections::HashMap;
@@ -6,6 +5,8 @@ use std::f64::{INFINITY, NEG_INFINITY};
 
 use neurarbor::slab_tree::{NodeId, Tree};
 use neurarbor::{edges_to_tree_with_data, resample_tree_points, Location, SpatialArbor, TopoArbor};
+
+use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 
 use nblast::nalgebra::base::{Unit, Vector3};
 use nblast::{
@@ -15,16 +16,6 @@ use nblast::{
 
 use nblast::rayon;
 use rayon::prelude::*;
-
-fn vec_to_array3<T: Sized + Copy>(v: &Vec<T>) -> [T; 3] {
-    [v[0], v[1], v[2]]
-}
-
-fn vec_to_unitvector3<T: 'static + Sized + Copy + PartialEq + Debug>(
-    v: &Vec<T>,
-) -> Unit<Vector3<T>> {
-    Unit::new_unchecked(Vector3::new(v[0], v[1], v[2]))
-}
 
 fn str_to_sym(s: &str) -> Result<Symmetry, ()> {
     match s {
@@ -64,37 +55,46 @@ impl ArenaWrapper {
         Ok(Self { arena, k })
     }
 
-    pub fn add_points(&mut self, py: Python, points: Vec<Vec<f64>>) -> PyResult<usize> {
-        py.allow_threads(|| {
-            let neuron = RStarTangentsAlphas::new(points.iter().map(vec_to_array3), self.k)
-                .map_err(PyErr::new::<exceptions::PyRuntimeError, _>)?;
-            Ok(self.arena.add_neuron(neuron))
-        })
+    pub fn add_points(&mut self, _py: Python, points: PyReadonlyArray2<f64>) -> PyResult<usize> {
+        let neuron = RStarTangentsAlphas::new(
+            points
+                .as_array()
+                .rows()
+                .into_iter()
+                .map(|r| [r[0], r[1], r[2]]),
+            self.k,
+        )
+        .map_err(PyErr::new::<exceptions::PyRuntimeError, _>)?;
+        Ok(self.arena.add_neuron(neuron))
     }
 
     pub fn add_points_tangents_alphas(
         &mut self,
-        py: Python,
-        points: Vec<Vec<f64>>,
-        tangents: Vec<Vec<f64>>,
-        alphas: Vec<f64>,
+        _py: Python,
+        points: PyReadonlyArray2<f64>,
+        tangents: PyReadonlyArray2<f64>,
+        alphas: PyReadonlyArray1<f64>,
     ) -> PyResult<usize> {
-        py.allow_threads(|| {
-            let tangents_alphas = tangents
-                .iter()
-                .zip(alphas.iter())
-                .map(|(t, a)| TangentAlpha {
-                    tangent: vec_to_unitvector3(t),
-                    alpha: *a,
-                })
-                .collect();
-            let neuron = RStarTangentsAlphas::new_with_tangents_alphas(
-                points.iter().map(vec_to_array3),
-                tangents_alphas,
-            )
-            .map_err(PyErr::new::<exceptions::PyRuntimeError, _>)?;
-            Ok(self.arena.add_neuron(neuron))
-        })
+        let tangents_alphas = tangents
+            .as_array()
+            .rows()
+            .into_iter()
+            .zip(alphas.as_array())
+            .map(|(t, a)| TangentAlpha {
+                tangent: Unit::new_unchecked(Vector3::new(t[0], t[1], t[2])),
+                alpha: *a,
+            })
+            .collect();
+        let neuron = RStarTangentsAlphas::new_with_tangents_alphas(
+            points
+                .as_array()
+                .rows()
+                .into_iter()
+                .map(|r| [r[0], r[1], r[2]]),
+            tangents_alphas,
+        )
+        .map_err(PyErr::new::<exceptions::PyRuntimeError, _>)?;
+        Ok(self.arena.add_neuron(neuron))
     }
 
     pub fn query_target(
@@ -172,24 +172,42 @@ impl ArenaWrapper {
         self.arena.self_hit(idx)
     }
 
-    pub fn points(&self, _py: Python, idx: NeuronIdx) -> Option<Vec<Vec<Precision>>> {
-        self.arena
-            .points(idx)
-            .map(|points| points.into_iter().map(|p| p.to_vec()).collect())
+    pub fn points<'py>(&self, py: Python<'py>, idx: NeuronIdx) -> Option<&'py PyArray2<Precision>> {
+        let points = self.arena.tangents(idx)?;
+        let len = points.len();
+
+        let out = PyArray2::zeros(py, [len, 3], false);
+
+        for (row_idx, point) in points.into_iter().enumerate() {
+            for (col_idx, val) in point.into_iter().enumerate() {
+                out.set_item([row_idx, col_idx], val).unwrap();
+            }
+        }
+
+        Some(out)
     }
 
-    pub fn tangents(&self, _py: Python, idx: NeuronIdx) -> Option<Vec<Vec<Precision>>> {
-        // TODO: better way to do this?
-        self.arena.tangents(idx).map(|vectors| {
-            vectors
-                .into_iter()
-                .map(|v| v.into_iter().cloned().collect())
-                .collect()
-        })
+    pub fn tangents<'py>(
+        &self,
+        py: Python<'py>,
+        idx: NeuronIdx,
+    ) -> Option<&'py PyArray2<Precision>> {
+        let tangents = self.arena.tangents(idx)?;
+        let len = tangents.len();
+
+        let out = PyArray2::zeros(py, [len, 3], false);
+
+        for (row_idx, tangent) in tangents.into_iter().enumerate() {
+            for (col_idx, val) in tangent.into_iter().enumerate() {
+                out.set_item([row_idx, col_idx], val).unwrap();
+            }
+        }
+
+        Some(out)
     }
 
-    pub fn alphas(&self, _py: Python, idx: NeuronIdx) -> Option<Vec<Precision>> {
-        self.arena.alphas(idx)
+    pub fn alphas<'py>(&self, py: Python<'py>, idx: NeuronIdx) -> Option<&'py PyArray1<Precision>> {
+        self.arena.alphas(idx).map(|v| PyArray1::from_vec(py, v))
     }
 }
 
@@ -329,7 +347,7 @@ fn make_neurons_many(
             points_list
                 .into_par_iter()
                 .map(|ps| {
-                    RStarTangentsAlphas::new(ps.into_iter().map(|p| vec_to_array3(&p)), k)
+                    RStarTangentsAlphas::new(ps.into_iter().map(|p| [p[0], p[1], p[2]]), k)
                         .expect("failed to construct neuron") // todo: error handling
                 })
                 .collect()
@@ -338,7 +356,7 @@ fn make_neurons_many(
         points_list
             .into_iter()
             .map(|ps| {
-                RStarTangentsAlphas::new(ps.into_iter().map(|p| vec_to_array3(&p)), k)
+                RStarTangentsAlphas::new(ps.into_iter().map(|p| [p[0], p[1], p[2]]), k)
                     .expect("failed to construct neuron") // todo: error handling
             })
             .collect()
@@ -346,6 +364,7 @@ fn make_neurons_many(
 }
 
 #[pyfunction]
+#[allow(clippy::too_many_arguments)]
 fn build_score_matrix(
     py: Python,
     points: Vec<Vec<Vec<Precision>>>,
