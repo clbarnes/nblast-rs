@@ -71,7 +71,6 @@ class ScoreMatrixBuilder:
             self.k,
             self.seed,
             self.use_alpha,
-            threads,
             self.matching_sets,
             self.nonmatching_sets,
             self.dist_n_bins,
@@ -80,6 +79,7 @@ class ScoreMatrixBuilder:
             self.dot_inner_bounds,
             self.max_matching_pairs,
             self.max_nonmatching_pairs,
+            threads,
         )
         values = np.array(cells).reshape((len(dist_bins), len(dot_bins)))
         return dist_bins, dot_bins, values

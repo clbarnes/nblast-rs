@@ -64,7 +64,6 @@ def build_score_matrix(
     k: int,
     seed: int,
     use_alpha: bool,
-    threads: Optional[int],
     matching_sets: List[List[int]],
     nonmatching_sets: Optional[List[List[int]]],
     dist_n_bins: Optional[int],
@@ -73,4 +72,5 @@ def build_score_matrix(
     dot_inner_bounds: Optional[List[float]],
     max_matching_pairs: Optional[int],
     max_nonmatching_pairs: Optional[int],
+    threads: Optional[int],
 ) -> Tuple[List[float], List[float], List[float]]: ...

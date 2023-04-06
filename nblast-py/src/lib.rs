@@ -352,7 +352,6 @@ fn build_score_matrix(
     k: usize,
     seed: u64,
     use_alpha: bool,
-    threads: Option<usize>,
     matching_sets: Vec<Vec<usize>>,
     nonmatching_sets: Option<Vec<Vec<usize>>>,
     dist_n_bins: Option<usize>,
@@ -361,6 +360,7 @@ fn build_score_matrix(
     dot_inner_bounds: Option<Vec<Precision>>,
     max_matching_pairs: Option<usize>,
     max_nonmatching_pairs: Option<usize>,
+    threads: Option<usize>,
 ) -> (Vec<Precision>, Vec<Precision>, Vec<Precision>) {
     py.allow_threads(|| {
         let neurons = make_neurons_many(points, k, threads);
