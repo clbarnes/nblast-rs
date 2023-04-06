@@ -351,11 +351,13 @@ enum LookupArgs {
 /// At a minimum, one matching set must be added (`.add_matching_set`),
 /// and the dist and dot bins must either be set automatically or calculated
 /// (`.set_(n_)?(dist|dot)_bins`).
+#[allow(dead_code)]
 pub struct ScoreMatrixBuilder<T: TargetNeuron> {
     // Data set of neuron point clouds
     neurons: Vec<T>,
     sampler: TrainingSampler,
     use_alpha: bool,
+    // shows as dead code without parallel feature
     threads: Option<usize>,
     dist_bin_lookup: Option<LookupArgs>,
     dot_bin_lookup: Option<LookupArgs>,
