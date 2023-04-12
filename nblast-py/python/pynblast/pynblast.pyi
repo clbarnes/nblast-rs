@@ -1,6 +1,6 @@
 """Type stubs for classes to be used directly from pynblast"""
 from __future__ import annotations
-from typing import List, Optional, Set, Tuple
+from typing import List, Optional, Tuple
 from .util import Idx
 
 class ResamplingArbor:
