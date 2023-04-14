@@ -363,6 +363,12 @@ fn make_neurons_many(
     }
 }
 
+fn inner_bounds_to_binlookup(mut v: Vec<Precision>) -> BinLookup<Precision> {
+    v.insert(0, NEG_INFINITY);
+    v.push(INFINITY);
+    BinLookup::new(v, (true, true)).expect("Failed to build BinLookup")
+}
+
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 fn build_score_matrix(
@@ -403,24 +409,16 @@ fn build_score_matrix(
             }
         }
 
-        if let Some(mut inner) = dist_inner_bounds {
-            inner.insert(0, NEG_INFINITY);
-            inner.push(INFINITY);
-            smatb.set_dist_lookup(
-                BinLookup::new(inner, (true, true)).expect("failed to build dist lookup"),
-            );
+        if let Some(inner) = dist_inner_bounds {
+            smatb.set_dist_lookup(inner_bounds_to_binlookup(inner));
         } else if let Some(n) = dist_n_bins {
             smatb.set_n_dist_bins(n);
         } else {
             unimplemented!("should supply dist_inner_bounds or dist_n_bins");
         }
 
-        if let Some(mut inner) = dot_inner_bounds {
-            inner.insert(0, NEG_INFINITY);
-            inner.push(INFINITY);
-            smatb.set_dot_lookup(
-                BinLookup::new(inner, (true, true)).expect("failed to build dot lookup"),
-            );
+        if let Some(inner) = dot_inner_bounds {
+            smatb.set_dot_lookup(inner_bounds_to_binlookup(inner));
         } else if let Some(n) = dot_n_bins {
             smatb.set_n_dot_bins(n);
         } else {
