@@ -1,4 +1,6 @@
+use numpy::ndarray::Array;
 use pyo3::exceptions;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::f64::{INFINITY, NEG_INFINITY};
@@ -6,7 +8,7 @@ use std::f64::{INFINITY, NEG_INFINITY};
 use neurarbor::slab_tree::{NodeId, Tree};
 use neurarbor::{edges_to_tree_with_data, resample_tree_points, Location, SpatialArbor, TopoArbor};
 
-use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
+use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 
 use nblast::nalgebra::base::{Unit, Vector3};
 use nblast::{
@@ -56,6 +58,10 @@ impl ArenaWrapper {
     }
 
     pub fn add_points(&mut self, _py: Python, points: PyReadonlyArray2<f64>) -> PyResult<usize> {
+        let pshape = points.shape();
+        if pshape[1] != 3 {
+            return Err(PyErr::new::<PyValueError, _>("Points were not 3D"));
+        }
         let neuron = RStarTangentsAlphas::new(
             points
                 .as_array()
@@ -75,6 +81,19 @@ impl ArenaWrapper {
         tangents: PyReadonlyArray2<f64>,
         alphas: PyReadonlyArray1<f64>,
     ) -> PyResult<usize> {
+        let pshape = points.shape();
+        if pshape[1] != 3 {
+            return Err(PyErr::new::<PyValueError, _>("Points were not 3D"));
+        }
+        let tshape = points.shape();
+        if tshape[1] != 3 {
+            return Err(PyErr::new::<PyValueError, _>("Tangents were not 3D"));
+        }
+        if pshape[0] != tshape[0] || pshape[0] != alphas.len() {
+            return Err(PyErr::new::<PyValueError, _>(
+                "Points, tangents, and alphas have inconsistent lengths",
+            ));
+        }
         let tangents_alphas = tangents
             .as_array()
             .rows()
@@ -173,18 +192,10 @@ impl ArenaWrapper {
     }
 
     pub fn points<'py>(&self, py: Python<'py>, idx: NeuronIdx) -> Option<&'py PyArray2<Precision>> {
-        let points = self.arena.tangents(idx)?;
+        let points = self.arena.points(idx)?;
         let len = points.len();
-
-        let out = PyArray2::zeros(py, [len, 3], false);
-
-        for (row_idx, point) in points.into_iter().enumerate() {
-            for (col_idx, val) in point.into_iter().enumerate() {
-                out.set_item([row_idx, col_idx], val).unwrap();
-            }
-        }
-
-        Some(out)
+        let v = points.into_iter().flatten().collect::<Vec<_>>();
+        Some(Array::from_shape_vec((len, 3), v).unwrap().into_pyarray(py))
     }
 
     pub fn tangents<'py>(
@@ -195,15 +206,13 @@ impl ArenaWrapper {
         let tangents = self.arena.tangents(idx)?;
         let len = tangents.len();
 
-        let out = PyArray2::zeros(py, [len, 3], false);
-
-        for (row_idx, tangent) in tangents.into_iter().enumerate() {
-            for (col_idx, val) in tangent.into_iter().enumerate() {
-                out.set_item([row_idx, col_idx], val).unwrap();
-            }
-        }
-
-        Some(out)
+        let v = tangents
+            .into_iter()
+            .fold(Vec::with_capacity(len * 3), |mut v, t| {
+                v.extend(t.into_inner().iter());
+                v
+            });
+        Some(Array::from_shape_vec((len, 3), v).unwrap().into_pyarray(py))
     }
 
     pub fn alphas<'py>(&self, py: Python<'py>, idx: NeuronIdx) -> Option<&'py PyArray1<Precision>> {

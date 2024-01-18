@@ -631,7 +631,7 @@ where
         }
         let mut jobs = HashSet::with_capacity(max_jobs);
         for (q, t) in query_target_idxs {
-            if q > &self.len() || t > &self.len() || jobs.contains(&(*q, *t)) {
+            if q > &self.len() || t > &self.len() {
                 continue;
             }
 
@@ -649,6 +649,10 @@ where
                 continue;
             } else {
                 out.insert(key, Precision::NAN);
+            }
+
+            if jobs.contains(&(*q, *t)) {
+                continue;
             }
 
             if let Some(d) = max_centroid_dist {

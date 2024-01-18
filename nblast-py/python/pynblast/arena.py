@@ -68,7 +68,7 @@ class NblastArena:
         points = np.asarray(points)
         if points.ndim != 2 or points.shape[1] != 3:
             raise ValueError("Points must have shape Nx3")
-        return self._impl.add_points(points.tolist())
+        return self._impl.add_points(points)
 
     def add_points_tangents_alphas(
         self,
@@ -102,7 +102,7 @@ class NblastArena:
                 raise ValueError("Alphas must be 1D and have same length as points")
 
         return self._impl.add_points_tangents_alphas(
-            points.tolist(), tangents.tolist(), alphas.tolist()
+            points, tangents, alphas
         )
 
     def query_target(
