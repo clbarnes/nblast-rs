@@ -84,7 +84,9 @@ fn read_all_points() -> Vec<Vec<Point3>> {
     NAMES.iter().map(|n| read_points(n)).collect()
 }
 
-fn match_nonmatch(repeats: usize) -> (Vec<Vec<Point3>>, Vec<Vec<usize>>, Vec<Vec<usize>>) {
+pub type MatchNonmatch = (Vec<Vec<Point3>>, Vec<Vec<usize>>, Vec<Vec<usize>>);
+
+fn match_nonmatch(repeats: usize) -> MatchNonmatch {
     let n_csvs = NAMES.len();
     let mut out_points = Vec::with_capacity(n_csvs * repeats);
     let all_points = read_all_points();
@@ -98,7 +100,7 @@ fn match_nonmatch(repeats: usize) -> (Vec<Vec<Point3>>, Vec<Vec<usize>>, Vec<Vec
 
     let rng = Rng::with_seed(1991);
 
-    for rep in 0..repeats {
+    for (rep, nm) in nonmatches.iter_mut().enumerate() {
         let aug = PointAug::new_random(
             0.5,  // 500nm
             0.02, // 20nm
@@ -110,7 +112,7 @@ fn match_nonmatch(repeats: usize) -> (Vec<Vec<Point3>>, Vec<Vec<usize>>, Vec<Vec
             let global_p_idx = offset + p_idx;
             out_points.push(aug.augment_all(ps));
             matches[p_idx].push(global_p_idx);
-            nonmatches[rep].push(global_p_idx);
+            nm.push(global_p_idx);
         }
     }
 

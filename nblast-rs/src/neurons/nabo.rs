@@ -107,7 +107,7 @@ impl NaboTangentsAlphas {
             tree,
             points_tangents_alphas: points
                 .into_iter()
-                .zip(tangents_alphas.into_iter())
+                .zip(tangents_alphas)
                 .collect(),
         }
     }
@@ -122,7 +122,7 @@ impl NaboTangentsAlphas {
             tree,
             points_tangents_alphas: points
                 .into_iter()
-                .zip(tangents_alphas.into_iter())
+                .zip(tangents_alphas)
                 .collect(),
         }
     }

@@ -594,21 +594,3 @@ fn log_odds_ratio(match_counts: Vec<Precision>, nonmatch_counts: Vec<Precision>)
         })
         .collect()
 }
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    fn assert_slice_eq(test: &[Precision], reference: &[Precision]) {
-        let msg = format!("\ttest: {:?}\n\t ref: {:?}", test, reference);
-        if test.len() != reference.len() {
-            panic!("Slices have different length\n{}", msg);
-        }
-
-        for (test_val, ref_val) in test.iter().zip(reference.iter()) {
-            if (test_val - ref_val).abs() > Precision::EPSILON {
-                panic!("Slices mave mismatched values\n{}", msg)
-            }
-        }
-    }
-}
