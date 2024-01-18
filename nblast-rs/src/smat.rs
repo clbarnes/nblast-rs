@@ -320,7 +320,7 @@ fn all_distdots<T: TargetNeuron>(
 
 /// Uses global thread pool by default. To use your own threadpool, use
 ///
-/// ```rust
+/// ```ignore
 /// let pool = rayon::ThreadPoolBuilder::new()
 ///     .num_threads(n_threads)
 ///     .build()
