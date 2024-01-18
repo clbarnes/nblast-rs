@@ -56,7 +56,7 @@ fn convert_multi_output(
 ) -> HashMap<NeuronIdx, HashMap<NeuronIdx, Precision>> {
     let mut out: HashMap<NeuronIdx, HashMap<NeuronIdx, f64>> = HashMap::default();
     for ((q, t), v) in result.drain() {
-        out.entry(q).or_insert_with(HashMap::default).insert(t, v);
+        out.entry(q).or_default().insert(t, v);
     }
     out
 }
@@ -171,8 +171,7 @@ pub fn make_flat_tangents_alphas(flat_points: &[f64], k: usize) -> JsResult<Floa
     for (idx, val) in neuron
         .tangents()
         .into_iter()
-        .map(|n| [n[0], n[1], n[2]])
-        .flatten()
+        .flat_map(|n| [n[0], n[1], n[2]])
         .chain(neuron.alphas().into_iter())
         .enumerate()
     {

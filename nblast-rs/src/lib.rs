@@ -152,8 +152,10 @@ impl TangentAlpha {
 /// Geometric and harmonic means bound the output to be >= 0.0.
 /// Geometric mean may work best with non-normalized queries.
 /// Max may work if an unknown one of the query and target is incomplete.
+#[derive(Default)]
 pub enum Symmetry {
     ArithmeticMean,
+    #[default]
     GeometricMean,
     HarmonicMean,
     Min,
@@ -172,11 +174,7 @@ impl Symmetry {
     }
 }
 
-impl Default for Symmetry {
-    fn default() -> Self {
-        Symmetry::GeometricMean
-    }
-}
+
 
 /// The result of comparing two (point, tangent) tuples.
 /// Contains the Euclidean distance between the points,

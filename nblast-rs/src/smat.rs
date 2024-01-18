@@ -584,7 +584,7 @@ fn log_odds_ratio(match_counts: Vec<Precision>, nonmatch_counts: Vec<Precision>)
 
     match_counts
         .into_iter()
-        .zip(nonmatch_counts.into_iter())
+        .zip(nonmatch_counts)
         .map(|(match_count, nonmatch_count)| {
             let p_match = match_count / match_total;
             let p_nonmatch = nonmatch_count / nonmatch_total;
