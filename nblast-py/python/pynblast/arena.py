@@ -101,9 +101,7 @@ class NblastArena:
             if alphas.shape != (len(points),):
                 raise ValueError("Alphas must be 1D and have same length as points")
 
-        return self._impl.add_points_tangents_alphas(
-            points, tangents, alphas
-        )
+        return self._impl.add_points_tangents_alphas(points, tangents, alphas)
 
     def query_target(
         self,

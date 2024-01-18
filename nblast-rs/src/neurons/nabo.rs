@@ -105,10 +105,7 @@ impl NaboTangentsAlphas {
         let (tree, tangents_alphas) = points_to_nabo_tangents_alphas(points.iter(), k);
         Self {
             tree,
-            points_tangents_alphas: points
-                .into_iter()
-                .zip(tangents_alphas)
-                .collect(),
+            points_tangents_alphas: points.into_iter().zip(tangents_alphas).collect(),
         }
     }
 
@@ -120,10 +117,7 @@ impl NaboTangentsAlphas {
         let tree = points_to_nabo(points.iter());
         Self {
             tree,
-            points_tangents_alphas: points
-                .into_iter()
-                .zip(tangents_alphas)
-                .collect(),
+            points_tangents_alphas: points.into_iter().zip(tangents_alphas).collect(),
         }
     }
 }

@@ -174,8 +174,6 @@ impl Symmetry {
     }
 }
 
-
-
 /// The result of comparing two (point, tangent) tuples.
 /// Contains the Euclidean distance between the points,
 /// and the absolute dot product of the (unit) tangents,
