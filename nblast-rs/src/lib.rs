@@ -96,10 +96,10 @@
 //! // Add some neurons built from points and a neighborhood size,
 //! // returning their indices in the arena
 //! let idx1 = arena.add_neuron(
-//!     Neuron::new(random_points(6, &mut rng), 5).expect("cannot construct neuron")
+//!     Neuron::new(random_points(6, &mut rng), 5))
 //! );
 //! let idx2 = arena.add_neuron(
-//!     Neuron::new(random_points(8, &mut rng), 5).expect("cannot construct neuron")
+//!     Neuron::new(random_points(8, &mut rng), 5))
 //! );
 //!
 //! // get a raw score (not normalized by self-hit, no symmetry)
