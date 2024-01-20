@@ -1,3 +1,4 @@
+//! Neuron types using the [nabo](https://crates.io/crates/nabo) crate as a backend.
 use super::{Neuron, QueryNeuron, TargetNeuron};
 use crate::{
     centroid, geometric_mean, DistDot, Normal3, Point3, Precision, ScoreCalc, TangentAlpha,
@@ -104,10 +105,7 @@ impl NaboTangentsAlphas {
         let (tree, tangents_alphas) = points_to_nabo_tangents_alphas(points.iter(), k);
         Self {
             tree,
-            points_tangents_alphas: points
-                .into_iter()
-                .zip(tangents_alphas.into_iter())
-                .collect(),
+            points_tangents_alphas: points.into_iter().zip(tangents_alphas).collect(),
         }
     }
 
@@ -119,10 +117,7 @@ impl NaboTangentsAlphas {
         let tree = points_to_nabo(points.iter());
         Self {
             tree,
-            points_tangents_alphas: points
-                .into_iter()
-                .zip(tangents_alphas.into_iter())
-                .collect(),
+            points_tangents_alphas: points.into_iter().zip(tangents_alphas).collect(),
         }
     }
 }

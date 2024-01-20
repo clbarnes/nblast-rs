@@ -52,12 +52,12 @@ clean-test: ## remove test and coverage artifacts
 	rm -fr .pytest_cache
 
 fmt:
-	black $(PY_PATHS)
+	ruff format $(PY_PATHS)
 	cargo fmt
 
 lint: ## check style with flake8
-	flake8 $(PY_PATHS)
-	black --check $(PY_PATHS)
+	ruff check $(PY_PATHS)
+	ruff format --check $(PY_PATHS)
 
 test: ## run tests quickly with the default Python
 	maturin develop

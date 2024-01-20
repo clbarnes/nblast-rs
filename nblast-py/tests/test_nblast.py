@@ -13,6 +13,9 @@ from pynblast import NblastArena, Idx, ScoreMatrix, rectify_tangents, Symmetry
 EPSILON = 0.001
 
 
+ArenaNames = tuple[NblastArena, dict[Idx, str]]
+
+
 def test_read_smat(smat_path):
     dist_bins, dot_bins, arr = ScoreMatrix.read(smat_path)
     assert arr.shape == (len(dist_bins) - 1, len(dot_bins) - 1)
@@ -27,6 +30,12 @@ def test_construction(score_mat_tup):
 def test_insertion(arena: NblastArena, points):
     df = points[0][1]
     arena.add_points(df.to_numpy())
+
+
+def sort3(p: np.ndarray) -> np.ndarray:
+    lst = p.tolist()
+    lst.sort()
+    return np.asarray(lst)
 
 
 def test_points_conserved(arena: NblastArena, points):
@@ -55,7 +64,7 @@ def test_rectify_tangents(test, expected):
     assert np.allclose(out, expected)
 
 
-def test_tangents(arena, dotprops):
+def test_tangents(arena: NblastArena, dotprops):
     df = dotprops[0][1]
     points = df[["points." + d for d in "XYZ"]].to_numpy()
     expected_tangents = rectify_tangents(
@@ -82,22 +91,38 @@ def test_query(arena_names: Tuple[NblastArena, Dict[int, str]]):
     assert result
 
 
-def all_v_all(arena, names, normalize=False, symmetry=None, threads=None):
-    q = list(names)
-    return arena.queries_targets(q, q, normalize, symmetry=symmetry, threads=threads)
+def all_v_all(arena: NblastArena, names, normalize=False, symmetry=None):
+    return arena.all_v_all(normalize, symmetry)
+    # q = list(names)
+
+    # return arena.queries_targets(q, q, normalize, symmetry=symmetry)
 
 
 def test_all_v_all(arena_names: Tuple[NblastArena, Dict[int, str]]):
-    out = all_v_all(*arena_names, threads=None)
+    out = all_v_all(*arena_names)
     assert len(out) == len(arena_names[1]) ** 2
 
 
-def test_all_v_all_par(arena_names: Tuple[NblastArena, Dict[int, str]]):
-    t_none = all_v_all(*arena_names, threads=None)
-    t_1 = all_v_all(*arena_names, threads=1)
-    t_0 = all_v_all(*arena_names, threads=0)
-    assert t_none == t_1
-    assert t_1 == t_0
+def test_qs_ts_sym(arena_names: ArenaNames):
+    arena, names = arena_names
+    out = arena.queries_targets(list(names), list(names), symmetry="arithmetic_mean")
+    assert len(out) == len(names) ** 2
+
+
+def test_all_v_all_sym(arena_names: Tuple[NblastArena, Dict[int, str]]):
+    out = all_v_all(*arena_names, symmetry="arithmetic_mean")
+    assert len(out) == len(arena_names[1]) ** 2
+
+
+def test_all_v_all_par(arena_names_factory):
+    out = []
+
+    for threads in [None, 1, 2]:
+        arena, names = arena_names_factory(False, threads)
+        out.append(all_v_all(arena, names))
+
+    assert out[0] == out[1]
+    assert out[0] == out[2]
 
 
 def test_normed(arena_names):

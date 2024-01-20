@@ -9,6 +9,7 @@ import os
 from tqdm import tqdm
 import pandas as pd
 import numpy as np
+import pooch
 
 from pynblast import NblastArena, ScoreMatrix
 
@@ -19,7 +20,7 @@ here = Path(__file__).resolve().parent
 
 
 def get_threads():
-    val = os.environ.get("NBLAST_THREADS", 0) or 0
+    val = os.environ.get("NBLAST_THREADS", "0")
     try:
         return int(val)
     except ValueError:
@@ -32,11 +33,13 @@ THREADS = get_threads()
 logger.warning("Running with THREADS = %s", THREADS)
 
 URL_PREFIX = "https://github.com/clbarnes/nblast-rs/files"
-SCORES_NAME = "fib250.aba.csv.zip"
 
-SCORES_URL = f"{URL_PREFIX}/4567582/{SCORES_NAME}"
 
-SCORES_FPATH = here / SCORES_NAME
+def get_scores_path() -> Path:
+    SCORES_NAME = "fib250.aba.csv.zip"
+
+    SCORES_URL = f"{URL_PREFIX}/4567582/{SCORES_NAME}"
+    return Path(pooch.retrieve(SCORES_URL, None))
 
 
 def df_to_pt_tan_a(df):
@@ -49,10 +52,8 @@ def df_to_pt_tan_a(df):
 def ingest_dotprops():
     DOTPROPS_NAME = "fib250.csv.zip"
     DOTPROPS_URL = f"{URL_PREFIX}/4567531/{DOTPROPS_NAME}"
-    DOTPROPS_FPATH = here / DOTPROPS_NAME
 
-    if not DOTPROPS_FPATH.is_file():
-        raise ValueError(f"Download necessary data from\n\t{DOTPROPS_URL}")
+    DOTPROPS_FPATH = Path(pooch.retrieve(url=DOTPROPS_URL, known_hash=None))
 
     with zf.ZipFile(DOTPROPS_FPATH) as z:
         with z.open(DOTPROPS_FPATH.name[:-4]) as f:

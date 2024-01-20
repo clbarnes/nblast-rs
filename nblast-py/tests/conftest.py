@@ -1,4 +1,4 @@
-from typing import Tuple, List, Dict, Optional
+from typing import Callable, Tuple, List, Dict, Optional
 from pathlib import Path
 import json
 
@@ -35,6 +35,24 @@ def points() -> List[Tuple[str, pd.DataFrame]]:
 @pytest.fixture
 def arena(score_mat_tup):
     return pynblast.NblastArena(*score_mat_tup, k=5)
+
+
+@pytest.fixture
+def arena_names_factory(
+    score_mat_tup, points
+) -> Callable[[bool, Optional[int]], Tuple[pynblast.NblastArena, dict[int, str]]]:
+    def fn(use_alpha, threads):
+        arena = pynblast.NblastArena(
+            *score_mat_tup, k=5, use_alpha=use_alpha, threads=threads
+        )
+
+        idx_to_name = dict()
+        for name, df in points:
+            idx = arena.add_points(df.to_numpy())
+            idx_to_name[idx] = name
+        return arena, idx_to_name
+
+    return fn
 
 
 @pytest.fixture

@@ -56,7 +56,7 @@ fn convert_multi_output(
 ) -> HashMap<NeuronIdx, HashMap<NeuronIdx, Precision>> {
     let mut out: HashMap<NeuronIdx, HashMap<NeuronIdx, f64>> = HashMap::default();
     for ((q, t), v) in result.drain() {
-        out.entry(q).or_insert_with(HashMap::default).insert(t, v);
+        out.entry(q).or_default().insert(t, v);
     }
     out
 }
@@ -69,6 +69,7 @@ impl NblastArena {
         dot_thresholds: &[f64],
         cells: &[f64],
         k: usize,
+        use_alpha: bool,
     ) -> JsResult<NblastArena> {
         let rtable = RangeTable::new_from_bins(
             vec![dist_thresholds.to_vec(), dot_thresholds.to_vec()],
@@ -77,19 +78,19 @@ impl NblastArena {
         .map_err(to_js_err)?;
         let score_calc = ScoreCalc::Table(rtable);
         Ok(Self {
-            arena: nblast::NblastArena::new(score_calc),
+            arena: nblast::NblastArena::new(score_calc, use_alpha),
             k,
         })
     }
 
-    #[wasm_bindgen(js_name="addPoints")]
+    #[wasm_bindgen(js_name = "addPoints")]
     pub fn add_points(&mut self, flat_points: &[f64]) -> JsResult<usize> {
         let points = flat_to_array3(flat_points);
         let neuron = RStarTangentsAlphas::new(points, self.k).map_err(JsError::new)?;
         Ok(self.arena.add_neuron(neuron))
     }
 
-    #[wasm_bindgen(js_name="addPointsTangentsAlphas")]
+    #[wasm_bindgen(js_name = "addPointsTangentsAlphas")]
     pub fn add_points_tangents_alphas(
         &mut self,
         flat_points: &[f64],
@@ -110,29 +111,27 @@ impl NblastArena {
         Ok(self.arena.add_neuron(neuron))
     }
 
-    #[wasm_bindgen(js_name="queryTarget")]
+    #[wasm_bindgen(js_name = "queryTarget")]
     pub fn query_target(
         &self,
         query_idx: NeuronIdx,
         target_idx: NeuronIdx,
         normalize: bool,
         symmetry: Option<JsString>,
-        use_alpha: bool,
     ) -> JsResult<Option<f64>> {
         let sym = parse_symmetry(symmetry)?;
         Ok(self
             .arena
-            .query_target(query_idx, target_idx, normalize, &sym, use_alpha))
+            .query_target(query_idx, target_idx, normalize, &sym))
     }
 
-    #[wasm_bindgen(js_name="queriesTargets")]
+    #[wasm_bindgen(js_name = "queriesTargets")]
     pub fn queries_targets(
         &self,
         query_idxs: &[NeuronIdx],
         target_idxs: &[NeuronIdx],
         normalize: bool,
         symmetry: Option<JsString>,
-        use_alpha: bool,
         max_centroid_dist: Option<Precision>,
     ) -> JsResult<JsValue> {
         let sym = parse_symmetry(symmetry)?;
@@ -141,29 +140,20 @@ impl NblastArena {
             target_idxs,
             normalize,
             &sym,
-            use_alpha,
-            None,
             max_centroid_dist,
         ));
         Ok(serde_wasm_bindgen::to_value(&out)?)
     }
 
-    #[wasm_bindgen(js_name="allVAll")]
+    #[wasm_bindgen(js_name = "allVAll")]
     pub fn all_v_all(
         &self,
         normalize: bool,
         symmetry: Option<JsString>,
-        use_alpha: bool,
         max_centroid_dist: Option<Precision>,
     ) -> JsResult<JsValue> {
         let sym = parse_symmetry(symmetry)?;
-        let out = convert_multi_output(self.arena.all_v_all(
-            normalize,
-            &sym,
-            use_alpha,
-            None,
-            max_centroid_dist,
-        ));
+        let out = convert_multi_output(self.arena.all_v_all(normalize, &sym, max_centroid_dist));
         Ok(serde_wasm_bindgen::to_value(&out)?)
     }
 }
@@ -181,8 +171,7 @@ pub fn make_flat_tangents_alphas(flat_points: &[f64], k: usize) -> JsResult<Floa
     for (idx, val) in neuron
         .tangents()
         .into_iter()
-        .map(|n| [n[0], n[1], n[2]])
-        .flatten()
+        .flat_map(|n| [n[0], n[1], n[2]])
         .chain(neuron.alphas().into_iter())
         .enumerate()
     {

@@ -23,9 +23,9 @@ def dict_to_df(idxs_to_score, idx_to_name):
 
 
 @pytest.mark.parametrize(["threads"], [(None,), (0,), (1,)])
-def test_vs_r(arena_names, expected_nblast, threads):
-    arena, idx_to_name = arena_names
-    idxs_to_score = arena.all_v_all(threads=threads)
+def test_vs_r(arena_names_factory, expected_nblast, threads):
+    arena, idx_to_name = arena_names_factory(False, threads)
+    idxs_to_score = arena.all_v_all()
 
     for (q_idx, t_idx), score in idxs_to_score.items():
         q_name = idx_to_name[q_idx]
