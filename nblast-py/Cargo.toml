@@ -17,6 +17,5 @@ name = "pynblast"
 crate-type = ["cdylib"]
 
 [package.metadata.release]
-disable-publish = true
-no-dev-version = true
+publish = false
 tag-prefix = "py-"

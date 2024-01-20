@@ -47,6 +47,5 @@ harness = false
 required-features = ["parallel"]
 
 [package.metadata.release]
-disable-publish = true
-no-dev-version = true
+publish = false
 tag-prefix = "rs-"
