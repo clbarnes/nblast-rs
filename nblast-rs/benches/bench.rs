@@ -6,6 +6,8 @@ use bencher::{benchmark_group, benchmark_main, Bencher};
 use csv::ReaderBuilder;
 use fastrand::Rng;
 
+#[cfg(feature = "kiddo")]
+use nblast::neurons::kiddo::{ExactKiddoTangentsAlphas, KiddoTangentsAlphas};
 #[cfg(feature = "nabo")]
 use nblast::neurons::nabo::NaboTangentsAlphas;
 use nblast::neurons::rstar::RStarTangentsAlphas;
@@ -264,10 +266,36 @@ fn bench_construction_nabo(b: &mut Bencher) {
     b.iter(|| NaboTangentsAlphas::new(points.clone(), N_NEIGHBORS))
 }
 
+fn bench_construction_kiddo(b: &mut Bencher) {
+    let points = read_points(NAMES[0]);
+    b.iter(|| KiddoTangentsAlphas::new(points.clone(), N_NEIGHBORS))
+}
+
+fn bench_construction_exact_kiddo(b: &mut Bencher) {
+    let points = read_points(NAMES[0]);
+    b.iter(|| ExactKiddoTangentsAlphas::new(points.clone(), N_NEIGHBORS))
+}
+
 fn bench_query_nabo(b: &mut Bencher) {
     let score_fn = get_score_fn();
     let query = NaboTangentsAlphas::new(read_points(NAMES[0]), N_NEIGHBORS);
     let target = NaboTangentsAlphas::new(read_points(NAMES[1]), N_NEIGHBORS);
+
+    b.iter(|| query.query(&target, false, &score_fn))
+}
+
+fn bench_query_kiddo(b: &mut Bencher) {
+    let score_fn = get_score_fn();
+    let query = KiddoTangentsAlphas::new(read_points(NAMES[0]), N_NEIGHBORS);
+    let target = KiddoTangentsAlphas::new(read_points(NAMES[1]), N_NEIGHBORS);
+
+    b.iter(|| query.query(&target, false, &score_fn))
+}
+
+fn bench_query_exact_kiddo(b: &mut Bencher) {
+    let score_fn = get_score_fn();
+    let query = ExactKiddoTangentsAlphas::new(read_points(NAMES[0]), N_NEIGHBORS);
+    let target = ExactKiddoTangentsAlphas::new(read_points(NAMES[1]), N_NEIGHBORS);
 
     b.iter(|| query.query(&target, false, &score_fn))
 }
@@ -375,6 +403,28 @@ fn bench_all_to_all_serial_nabo(b: &mut Bencher) {
     b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, None));
 }
 
+fn bench_all_to_all_serial_kiddo(b: &mut Bencher) {
+    let mut arena = NblastArena::new(get_score_fn(), false);
+    let mut idxs = Vec::new();
+    for name in NAMES.iter() {
+        let points = read_points(name);
+        idxs.push(arena.add_neuron(KiddoTangentsAlphas::new(points, N_NEIGHBORS)));
+    }
+
+    b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, None));
+}
+
+fn bench_all_to_all_serial_exact_kiddo(b: &mut Bencher) {
+    let mut arena = NblastArena::new(get_score_fn(), false);
+    let mut idxs = Vec::new();
+    for name in NAMES.iter() {
+        let points = read_points(name);
+        idxs.push(arena.add_neuron(ExactKiddoTangentsAlphas::new(points, N_NEIGHBORS)));
+    }
+
+    b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, None));
+}
+
 #[cfg(feature = "parallel")]
 fn bench_all_to_all_parallel(b: &mut Bencher) {
     let mut arena = NblastArena::new(get_score_fn(), false).with_threads(0);
@@ -455,6 +505,22 @@ benchmark_group!(
     bench_all_to_all_serial_nabo,
 );
 
+#[cfg(feature = "kiddo")]
+benchmark_group!(
+    impl_kiddo,
+    bench_construction_kiddo,
+    bench_query_kiddo,
+    bench_all_to_all_serial_kiddo,
+);
+
+#[cfg(feature = "kiddo")]
+benchmark_group!(
+    impl_exact_kiddo,
+    bench_construction_exact_kiddo,
+    bench_query_exact_kiddo,
+    bench_all_to_all_serial_exact_kiddo,
+);
+
 benchmark_group!(
     arena,
     bench_arena_query,
@@ -472,4 +538,4 @@ benchmark_group!(
     bench_smatbuild_rstar_quantiles,
 );
 
-benchmark_main!(impl_rstar, impl_nabo, arena, smat);
+benchmark_main!(impl_rstar, impl_nabo, impl_kiddo, arena, smat);

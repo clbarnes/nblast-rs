@@ -3,7 +3,8 @@ use crate::{centroid, DistDot, Normal3, Point3, Precision, ScoreCalc, TangentAlp
 
 use self::rstar::RStarTangentsAlphas;
 
-// pub mod fnntw;
+#[cfg(feature = "kiddo")]
+pub mod kiddo;
 #[cfg(feature = "nabo")]
 pub mod nabo;
 pub mod rstar;
