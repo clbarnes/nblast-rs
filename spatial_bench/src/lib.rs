@@ -103,11 +103,7 @@ pub trait SpatialArena: Default {
     fn all_v_all(&self) -> Vec<Vec<Vec<(usize, Precision)>>> {
         let len = self.len();
         (0..len)
-            .map(|q| {
-                (0..len)
-                    .map(move |t| self.query_target(q, t.clone()))
-                    .collect()
-            })
+            .map(|q| (0..len).map(move |t| self.query_target(q, t)).collect())
             .collect()
     }
 }
