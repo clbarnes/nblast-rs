@@ -61,7 +61,7 @@
 //! ```
 //! use nblast::{NblastArena, ScoreCalc, Neuron, Symmetry};
 //!
-//! // create a lookup table for the point match scores
+//! // Create a lookup table for the point match scores
 //! let smat = ScoreCalc::table_from_bins(
 //!   vec![0.0, 0.1, 0.25, 0.5, 1.0, 5.0, f64::INFINITY], // distance thresholds
 //!   vec![0.0, 0.2, 0.4, 0.6, 0.8, 1.0], // dot product thresholds
@@ -75,7 +75,9 @@
 //!   ],
 //! ).expect("could not build score matrix");
 //!
-//! // create an arena to hold your neurons with this score function,
+//! // See the ScoreMatrixBuilder for constructing a score matrix from test data.
+//!
+//! // Create an arena to hold your neurons with this score function,
 //! // whether it should scale the dot products by the colinearity value,
 //! // and how many threads to use (default serial)
 //! let mut arena = NblastArena::new(smat, false).with_threads(2);
@@ -91,7 +93,7 @@
 //! }
 //!
 
-//! // add some neurons built from points and a neighborhood size,
+//! // Add some neurons built from points and a neighborhood size,
 //! // returning their indices in the arena
 //! let idx1 = arena.add_neuron(
 //!     Neuron::new(random_points(6, &mut rng), 5).expect("cannot construct neuron")
