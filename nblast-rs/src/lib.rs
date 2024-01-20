@@ -96,10 +96,10 @@
 //! // Add some neurons built from points and a neighborhood size,
 //! // returning their indices in the arena
 //! let idx1 = arena.add_neuron(
-//!     Neuron::new(random_points(6, &mut rng), 5))
+//!     Neuron::new(random_points(6, &mut rng), 5).expect("cannot construct neuron")
 //! );
 //! let idx2 = arena.add_neuron(
-//!     Neuron::new(random_points(8, &mut rng), 5))
+//!     Neuron::new(random_points(8, &mut rng), 5).expect("cannot construct neuron")
 //! );
 //!
 //! // get a raw score (not normalized by self-hit, no symmetry)
@@ -966,7 +966,7 @@ mod test {
     #[test]
     fn test_neuron() {
         let (points, exp_tan, _exp_alpha) = tangent_data();
-        let tgt = Neuron::new(points, N_NEIGHBORS);
+        let tgt = Neuron::new(points, N_NEIGHBORS).unwrap();
         assert!(equivalent_tangents(&tgt.tangents()[0], &exp_tan));
         // tested from the python side
         // assert_close(tgt.alphas()[0], exp_alpha);
@@ -1089,8 +1089,10 @@ mod test {
             RangeTable::new_from_bins(vec![dist_thresholds, dot_thresholds], cells).unwrap(),
         );
 
-        let query = Neuron::new(make_points(&[0., 0., 0.], &[1., 0., 0.], 10), N_NEIGHBORS);
-        let target = Neuron::new(make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10), N_NEIGHBORS);
+        let query =
+            Neuron::new(make_points(&[0., 0., 0.], &[1., 0., 0.], 10), N_NEIGHBORS).unwrap();
+        let target =
+            Neuron::new(make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10), N_NEIGHBORS).unwrap();
 
         let mut arena = NblastArena::new(score_calc, false);
         let q_idx = arena.add_neuron(query);

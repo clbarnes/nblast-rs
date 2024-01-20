@@ -286,16 +286,16 @@ fn bench_query_nabo(b: &mut Bencher) {
 
 fn bench_query_kiddo(b: &mut Bencher) {
     let score_fn = get_score_fn();
-    let query = KiddoTangentsAlphas::new(read_points(NAMES[0]), N_NEIGHBORS);
-    let target = KiddoTangentsAlphas::new(read_points(NAMES[1]), N_NEIGHBORS);
+    let query = KiddoTangentsAlphas::new(read_points(NAMES[0]), N_NEIGHBORS).unwrap();
+    let target = KiddoTangentsAlphas::new(read_points(NAMES[1]), N_NEIGHBORS).unwrap();
 
     b.iter(|| query.query(&target, false, &score_fn))
 }
 
 fn bench_query_exact_kiddo(b: &mut Bencher) {
     let score_fn = get_score_fn();
-    let query = ExactKiddoTangentsAlphas::new(read_points(NAMES[0]), N_NEIGHBORS);
-    let target = ExactKiddoTangentsAlphas::new(read_points(NAMES[1]), N_NEIGHBORS);
+    let query = ExactKiddoTangentsAlphas::new(read_points(NAMES[0]), N_NEIGHBORS).unwrap();
+    let target = ExactKiddoTangentsAlphas::new(read_points(NAMES[1]), N_NEIGHBORS).unwrap();
 
     b.iter(|| query.query(&target, false, &score_fn))
 }
@@ -408,7 +408,7 @@ fn bench_all_to_all_serial_kiddo(b: &mut Bencher) {
     let mut idxs = Vec::new();
     for name in NAMES.iter() {
         let points = read_points(name);
-        idxs.push(arena.add_neuron(KiddoTangentsAlphas::new(points, N_NEIGHBORS)));
+        idxs.push(arena.add_neuron(KiddoTangentsAlphas::new(points, N_NEIGHBORS).unwrap()));
     }
 
     b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, None));
@@ -419,7 +419,7 @@ fn bench_all_to_all_serial_exact_kiddo(b: &mut Bencher) {
     let mut idxs = Vec::new();
     for name in NAMES.iter() {
         let points = read_points(name);
-        idxs.push(arena.add_neuron(ExactKiddoTangentsAlphas::new(points, N_NEIGHBORS)));
+        idxs.push(arena.add_neuron(ExactKiddoTangentsAlphas::new(points, N_NEIGHBORS).unwrap()));
     }
 
     b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, None));

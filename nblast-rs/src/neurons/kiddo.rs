@@ -20,8 +20,11 @@ pub struct KiddoTangentsAlphas {
 impl KiddoTangentsAlphas {
     /// Calculate tangents from constructed R*-tree.
     /// `k` is the number of points to calculate each tangent with.
-    pub fn new(points: Vec<Point3>, k: usize) -> Self {
+    pub fn new(points: Vec<Point3>, k: usize) -> Result<Self, &'static str> {
         let tree: KdTree = points.as_slice().into();
+        if points.len() < k {
+            return Err("Not enough points to calculate neighborhood");
+        }
         let points_tangents_alphas = points
             .iter()
             .map(|p| {
@@ -32,22 +35,25 @@ impl KiddoTangentsAlphas {
             })
             .collect();
 
-        Self {
+        Ok(Self {
             tree,
             points_tangents_alphas,
-        }
+        })
     }
 
     /// Use pre-calculated tangents.
     pub fn new_with_tangents_alphas(
         points: Vec<Point3>,
         tangents_alphas: Vec<TangentAlpha>,
-    ) -> Self {
+    ) -> Result<Self, &'static str> {
+        if points.len() != tangents_alphas.len() {
+            return Err("Mismatch in points and tangents_alphas length");
+        }
         let tree: KdTree = points.as_slice().into();
-        Self {
+        Ok(Self {
             tree,
             points_tangents_alphas: points.into_iter().zip(tangents_alphas).collect(),
-        }
+        })
     }
 
     fn nearest_match_dist_dot_inner(
@@ -159,19 +165,16 @@ pub struct ExactKiddoTangentsAlphas(KiddoTangentsAlphas);
 impl ExactKiddoTangentsAlphas {
     /// Calculate tangents from constructed R*-tree.
     /// `k` is the number of points to calculate each tangent with.
-    pub fn new(points: Vec<Point3>, k: usize) -> Self {
-        Self(KiddoTangentsAlphas::new(points, k))
+    pub fn new(points: Vec<Point3>, k: usize) -> Result<Self, &'static str> {
+        KiddoTangentsAlphas::new(points, k).map(Self)
     }
 
     /// Use pre-calculated tangents.
     pub fn new_with_tangents_alphas(
         points: Vec<Point3>,
         tangents_alphas: Vec<TangentAlpha>,
-    ) -> Self {
-        Self(KiddoTangentsAlphas::new_with_tangents_alphas(
-            points,
-            tangents_alphas,
-        ))
+    ) -> Result<Self, &'static str> {
+        KiddoTangentsAlphas::new_with_tangents_alphas(points, tangents_alphas).map(Self)
     }
 }
 

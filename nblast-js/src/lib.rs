@@ -86,7 +86,7 @@ impl NblastArena {
     #[wasm_bindgen(js_name = "addPoints")]
     pub fn add_points(&mut self, flat_points: &[f64]) -> JsResult<usize> {
         let points = flat_to_array3(flat_points);
-        let neuron = Neuron::new(points, self.k);
+        let neuron = Neuron::new(points, self.k).map_err(JsError::new)?;
         Ok(self.arena.add_neuron(neuron))
     }
 
@@ -106,7 +106,8 @@ impl NblastArena {
             })
             .collect();
         let points = flat_to_array3(flat_points);
-        let neuron = Neuron::new_with_tangents_alphas(points, tangents_alphas);
+        let neuron =
+            Neuron::new_with_tangents_alphas(points, tangents_alphas).map_err(JsError::new)?;
         Ok(self.arena.add_neuron(neuron))
     }
 
@@ -165,7 +166,7 @@ impl NblastArena {
 #[wasm_bindgen(js_name = "makeFlatTangentsAlphas")]
 pub fn make_flat_tangents_alphas(flat_points: &[f64], k: usize) -> JsResult<Float64Array> {
     let points = flat_to_array3(flat_points);
-    let neuron = Neuron::new(points, k);
+    let neuron = Neuron::new(points, k).map_err(JsError::new)?;
     let out = Float64Array::new_with_length(neuron.len() as u32);
     for (idx, val) in neuron
         .tangents()

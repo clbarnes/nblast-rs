@@ -70,7 +70,8 @@ impl ArenaWrapper {
                 .map(|r| [r[0], r[1], r[2]])
                 .collect(),
             self.k,
-        );
+        )
+        .map_err(|e| PyErr::new::<PyValueError, _>(e))?;
         Ok(self.arena.add_neuron(neuron))
     }
 
@@ -112,7 +113,8 @@ impl ArenaWrapper {
                 .map(|r| [r[0], r[1], r[2]])
                 .collect(),
             tangents_alphas,
-        );
+        )
+        .map_err(|e| PyErr::new::<PyValueError, _>(e))?;
         Ok(self.arena.add_neuron(neuron))
     }
 
@@ -355,13 +357,19 @@ fn make_neurons_many(
         pool.install(|| {
             points_list
                 .into_par_iter()
-                .map(|ps| Neuron::new(ps.into_iter().map(|p| [p[0], p[1], p[2]]).collect(), k))
+                .map(|ps| {
+                    Neuron::new(ps.into_iter().map(|p| [p[0], p[1], p[2]]).collect(), k)
+                        .expect("Invalid neuron")
+                })
                 .collect()
         })
     } else {
         points_list
             .into_iter()
-            .map(|ps| Neuron::new(ps.into_iter().map(|p| [p[0], p[1], p[2]]).collect(), k))
+            .map(|ps| {
+                Neuron::new(ps.into_iter().map(|p| [p[0], p[1], p[2]]).collect(), k)
+                    .expect("invalid neuron")
+            })
             .collect()
     }
 }
