@@ -5,7 +5,7 @@ use js_sys::{Float64Array, JsString};
 use nblast::Precision;
 use nblast::{
     nalgebra::{Unit, Vector3},
-    Neuron, NeuronIdx, RStarTangentsAlphas, RangeTable, ScoreCalc, Symmetry, TangentAlpha,
+    NblastNeuron, Neuron, NeuronIdx, RangeTable, ScoreCalc, Symmetry, TangentAlpha,
 };
 use wasm_bindgen::prelude::*;
 
@@ -27,7 +27,7 @@ fn str_to_sym(s: &str) -> Result<Symmetry, &str> {
 
 #[wasm_bindgen]
 pub struct NblastArena {
-    arena: nblast::NblastArena<RStarTangentsAlphas>,
+    arena: nblast::NblastArena<Neuron>,
     k: usize,
 }
 
@@ -86,7 +86,7 @@ impl NblastArena {
     #[wasm_bindgen(js_name = "addPoints")]
     pub fn add_points(&mut self, flat_points: &[f64]) -> JsResult<usize> {
         let points = flat_to_array3(flat_points);
-        let neuron = RStarTangentsAlphas::new(points, self.k).map_err(JsError::new)?;
+        let neuron = Neuron::new(points, self.k).map_err(JsError::new)?;
         Ok(self.arena.add_neuron(neuron))
     }
 
@@ -106,8 +106,8 @@ impl NblastArena {
             })
             .collect();
         let points = flat_to_array3(flat_points);
-        let neuron = RStarTangentsAlphas::new_with_tangents_alphas(points, tangents_alphas)
-            .map_err(JsError::new)?;
+        let neuron =
+            Neuron::new_with_tangents_alphas(points, tangents_alphas).map_err(JsError::new)?;
         Ok(self.arena.add_neuron(neuron))
     }
 
@@ -166,7 +166,7 @@ impl NblastArena {
 #[wasm_bindgen(js_name = "makeFlatTangentsAlphas")]
 pub fn make_flat_tangents_alphas(flat_points: &[f64], k: usize) -> JsResult<Float64Array> {
     let points = flat_to_array3(flat_points);
-    let neuron = RStarTangentsAlphas::new(points, k).map_err(JsError::new)?;
+    let neuron = Neuron::new(points, k).map_err(JsError::new)?;
     let out = Float64Array::new_with_length(neuron.len() as u32);
     for (idx, val) in neuron
         .tangents()

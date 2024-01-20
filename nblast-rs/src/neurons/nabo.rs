@@ -1,5 +1,5 @@
 //! Neuron types using the [nabo](https://crates.io/crates/nabo) crate as a backend.
-use super::{Neuron, QueryNeuron, TargetNeuron};
+use super::{NblastNeuron, QueryNeuron, TargetNeuron};
 use crate::{
     centroid, geometric_mean, DistDot, Normal3, Point3, Precision, ScoreCalc, TangentAlpha,
 };
@@ -122,7 +122,7 @@ impl NaboTangentsAlphas {
     }
 }
 
-impl Neuron for NaboTangentsAlphas {
+impl NblastNeuron for NaboTangentsAlphas {
     fn len(&self) -> usize {
         self.points_tangents_alphas.len()
     }

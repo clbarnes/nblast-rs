@@ -57,8 +57,59 @@
 //! and a function to apply to pointwise [DistDot](struct.DistDot.html)s to generate
 //! a score for that point match, for convenient many-to-many comparisons.
 //! A pre-calculated table of point match scores can be converted into a function with [table_to_fn](fn.table_to_fn.html).
+//!
+//! ```
+//! use nblast::{NblastArena, ScoreCalc, Neuron, Symmetry};
+//!
+//! // create a lookup table for the point match scores
+//! let smat = ScoreCalc::table_from_bins(
+//!   vec![0.0, 0.1, 0.25, 0.5, 1.0, 5.0, f64::INFINITY], // distance thresholds
+//!   vec![0.0, 0.2, 0.4, 0.6, 0.8, 1.0], // dot product thresholds
+//!   vec![ // table values in dot-major order
+//!     0.0, 0.1, 0.2, 0.3, 0.4,
+//!     1.0, 1.1, 1.2, 1.3, 1.4,
+//!     2.0, 2.1, 2.2, 2.3, 2.4,
+//!     3.0, 3.1, 3.2, 3.3, 3.4,
+//!     4.0, 4.1, 4.2, 4.3, 4.4,
+//!     5.0, 5.1, 5.2, 5.3, 5.4,
+//!   ],
+//! ).expect("could not build score matrix");
+//!
+//! // create an arena to hold your neurons with this score function,
+//! // whether it should scale the dot products by the colinearity value,
+//! // and how many threads to use (default serial)
+//! let mut arena = NblastArena::new(smat, false).with_threads(2);
+//!
+//! let mut rng = fastrand::Rng::with_seed(1991);
+//!
+//! fn random_points(n: usize, rng: &mut fastrand::Rng) -> Vec<[f64; 3]> {
+//!     std::iter::repeat_with(|| [
+//!         10.0 * rng.f64(),
+//!         10.0 * rng.f64(),
+//!         10.0 * rng.f64(),
+//!     ]).take(n).collect()
+//! }
+//!
+
+//! // add some neurons built from points and a neighborhood size,
+//! // returning their indices in the arena
+//! let idx1 = arena.add_neuron(
+//!     Neuron::new(random_points(6, &mut rng), 5).expect("cannot construct neuron")
+//! );
+//! let idx2 = arena.add_neuron(
+//!     Neuron::new(random_points(8, &mut rng), 5).expect("cannot construct neuron")
+//! );
+//!
+//! // get a raw score (not normalized by self-hit, no symmetry)
+//! let raw = arena.query_target(idx1, idx2, false, &None);
+//!
+//! // get all the scores, normalized, made symmetric, and with a centroid distance cut-off
+//! let results = arena.all_v_all(true, &Some(Symmetry::ArithmeticMean), Some(10.0));
+//!
+//! ```
 use nalgebra::base::{Matrix3, Unit, Vector3};
 use std::collections::{HashMap, HashSet};
+use table_lookup::InvalidRangeTable;
 
 #[cfg(feature = "parallel")]
 pub use rayon;
@@ -73,13 +124,9 @@ pub use smat::ScoreMatrixBuilder;
 mod table_lookup;
 pub use table_lookup::{BinLookup, NdBinLookup, RangeTable};
 
-mod neurons;
+pub mod neurons;
 use neurons::rstar::points_to_rtree_tangents_alphas;
-pub use neurons::rstar::RStarTangentsAlphas;
-pub use neurons::{Neuron, QueryNeuron, TargetNeuron};
-
-#[cfg(feature = "nabo")]
-pub use neurons::nabo::NaboTangentsAlphas;
+pub use neurons::{NblastNeuron, Neuron, QueryNeuron, TargetNeuron};
 
 /// Floating point precision type used internally
 pub type Precision = f64;
@@ -294,7 +341,7 @@ impl PointsTangentsAlphas {
     }
 }
 
-impl Neuron for PointsTangentsAlphas {
+impl NblastNeuron for PointsTangentsAlphas {
     fn len(&self) -> usize {
         self.points.len()
     }
@@ -471,6 +518,17 @@ pub enum ScoreCalc {
 }
 
 impl ScoreCalc {
+    pub fn table_from_bins(
+        dists: Vec<Precision>,
+        dots: Vec<Precision>,
+        values: Vec<Precision>,
+    ) -> Result<Self, InvalidRangeTable> {
+        Ok(Self::Table(RangeTable::new_from_bins(
+            vec![dists, dots],
+            values,
+        )?))
+    }
+
     pub fn calc(&self, dist_dot: &DistDot) -> Precision {
         match self {
             // Self::Func(func) => func(dist_dot),
@@ -827,7 +885,7 @@ mod test {
     fn construct() {
         let points = make_points(&[0., 0., 0.], &[1., 0., 0.], 10);
         PointsTangentsAlphas::new(points.clone(), N_NEIGHBORS).expect("Query construction failed");
-        RStarTangentsAlphas::new(&points, N_NEIGHBORS).expect("Target construction failed");
+        Neuron::new(&points, N_NEIGHBORS).expect("Target construction failed");
     }
 
     fn is_close(val1: Precision, val2: Precision) -> bool {
@@ -911,7 +969,7 @@ mod test {
     #[test]
     fn test_neuron() {
         let (points, exp_tan, _exp_alpha) = tangent_data();
-        let tgt = RStarTangentsAlphas::new(points, N_NEIGHBORS).unwrap();
+        let tgt = Neuron::new(points, N_NEIGHBORS).unwrap();
         assert!(equivalent_tangents(&tgt.tangents()[0], &exp_tan));
         // tested from the python side
         // assert_close(tgt.alphas()[0], exp_alpha);
@@ -1034,10 +1092,9 @@ mod test {
             RangeTable::new_from_bins(vec![dist_thresholds, dot_thresholds], cells).unwrap(),
         );
 
-        let query =
-            RStarTangentsAlphas::new(&make_points(&[0., 0., 0.], &[1., 0., 0.], 10), N_NEIGHBORS)
-                .expect("Construction failed");
-        let target = RStarTangentsAlphas::new(
+        let query = Neuron::new(&make_points(&[0., 0., 0.], &[1., 0., 0.], 10), N_NEIGHBORS)
+            .expect("Construction failed");
+        let target = Neuron::new(
             &make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10),
             N_NEIGHBORS,
         )

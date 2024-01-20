@@ -6,13 +6,13 @@ use bencher::{benchmark_group, benchmark_main, Bencher};
 use csv::ReaderBuilder;
 use fastrand::Rng;
 
-use nblast::{
-    BinLookup, NblastArena, Neuron, Point3, Precision, QueryNeuron, RStarTangentsAlphas,
-    RangeTable, ScoreCalc, ScoreMatrixBuilder, TangentAlpha,
-};
-
 #[cfg(feature = "nabo")]
-use nblast::NaboTangentsAlphas;
+use nblast::neurons::nabo::NaboTangentsAlphas;
+use nblast::neurons::rstar::RStarTangentsAlphas;
+use nblast::{
+    BinLookup, NblastArena, NblastNeuron, Point3, Precision, QueryNeuron, RangeTable, ScoreCalc,
+    ScoreMatrixBuilder, TangentAlpha,
+};
 
 const NAMES: [&str; 20] = [
     "ChaMARCM-F000586_seg002",

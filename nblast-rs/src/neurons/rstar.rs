@@ -1,5 +1,5 @@
 //! Neuron types using the [rstar](https://crates.io/crates/rstar) crate as a backend.
-use super::{Neuron, QueryNeuron, TargetNeuron};
+use super::{NblastNeuron, QueryNeuron, TargetNeuron};
 use crate::{
     centroid, geometric_mean, DistDot, Normal3, Point3, Precision, ScoreCalc, TangentAlpha,
 };
@@ -81,7 +81,7 @@ impl RStarTangentsAlphas {
     }
 }
 
-impl Neuron for RStarTangentsAlphas {
+impl NblastNeuron for RStarTangentsAlphas {
     fn len(&self) -> usize {
         self.tangents_alphas.len()
     }

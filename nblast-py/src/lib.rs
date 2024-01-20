@@ -12,7 +12,7 @@ use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2}
 
 use nblast::nalgebra::base::{Unit, Vector3};
 use nblast::{
-    BinLookup, NblastArena, NeuronIdx, Precision, RStarTangentsAlphas, RangeTable, ScoreCalc,
+    BinLookup, NblastArena, Neuron, NeuronIdx, Precision, RangeTable, ScoreCalc,
     ScoreMatrixBuilder, Symmetry, TangentAlpha,
 };
 
@@ -32,7 +32,7 @@ fn str_to_sym(s: &str) -> Result<Symmetry, ()> {
 
 #[pyclass]
 pub struct ArenaWrapper {
-    arena: NblastArena<RStarTangentsAlphas>,
+    arena: NblastArena<Neuron>,
     k: usize,
 }
 
@@ -62,7 +62,7 @@ impl ArenaWrapper {
         if pshape[1] != 3 {
             return Err(PyErr::new::<PyValueError, _>("Points were not 3D"));
         }
-        let neuron = RStarTangentsAlphas::new(
+        let neuron = Neuron::new(
             points
                 .as_array()
                 .rows()
@@ -104,7 +104,7 @@ impl ArenaWrapper {
                 alpha: *a,
             })
             .collect();
-        let neuron = RStarTangentsAlphas::new_with_tangents_alphas(
+        let neuron = Neuron::new_with_tangents_alphas(
             points
                 .as_array()
                 .rows()
@@ -346,7 +346,7 @@ fn make_neurons_many(
     points_list: Vec<Vec<Vec<Precision>>>,
     k: usize,
     threads: Option<usize>,
-) -> Vec<RStarTangentsAlphas> {
+) -> Vec<Neuron> {
     if let Some(t) = threads {
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(t)
@@ -356,7 +356,7 @@ fn make_neurons_many(
             points_list
                 .into_par_iter()
                 .map(|ps| {
-                    RStarTangentsAlphas::new(ps.into_iter().map(|p| [p[0], p[1], p[2]]), k)
+                    Neuron::new(ps.into_iter().map(|p| [p[0], p[1], p[2]]), k)
                         .expect("failed to construct neuron") // todo: error handling
                 })
                 .collect()
@@ -365,7 +365,7 @@ fn make_neurons_many(
         points_list
             .into_iter()
             .map(|ps| {
-                RStarTangentsAlphas::new(ps.into_iter().map(|p| [p[0], p[1], p[2]]), k)
+                Neuron::new(ps.into_iter().map(|p| [p[0], p[1], p[2]]), k)
                     .expect("failed to construct neuron") // todo: error handling
             })
             .collect()
