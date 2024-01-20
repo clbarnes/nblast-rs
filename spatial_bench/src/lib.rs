@@ -1,10 +1,18 @@
+use fastrand::Rng;
+use std::collections::HashMap;
 use std::fs::File;
 use std::path::PathBuf;
+
+pub mod bosque;
+pub mod kiddo;
+pub mod nabo;
+pub mod rstar;
 
 use csv::ReaderBuilder;
 
 pub type Precision = f64;
 pub type Point3 = [Precision; 3];
+pub const DIM: usize = 3;
 
 const NAMES: [&str; 20] = [
     "ChaMARCM-F000586_seg002",
@@ -74,4 +82,127 @@ fn read_points(name: &str) -> Vec<Point3> {
 
 fn read_all_points() -> Vec<Vec<Point3>> {
     NAMES.iter().map(|n| read_points(n)).collect()
+}
+
+pub trait SpatialArena: Default {
+    fn add_points(&mut self, p: Vec<Point3>) -> usize;
+
+    fn query_target(&self, q: usize, t: usize) -> Vec<(usize, Precision)>;
+
+    fn local_query(&self, q: usize, neighborhood: usize) -> Vec<Vec<usize>>;
+
+    fn len(&self) -> usize;
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    fn all_locals(&self, neighborhood: usize) -> Vec<Vec<Vec<usize>>> {
+        (0..self.len())
+            .map(|idx| self.local_query(idx, neighborhood))
+            .collect()
+    }
+
+    fn all_v_all(&self) -> Vec<Vec<Vec<(usize, Precision)>>> {
+        let len = self.len();
+        (0..len)
+            .map(|q| {
+                (0..len)
+                    .map(move |t| self.query_target(q, t.clone()))
+                    .collect()
+            })
+            .collect()
+    }
+}
+
+#[derive(Default)]
+pub struct ArenaWrapper<S: SpatialArena>(S);
+
+impl<S: SpatialArena> SpatialArena for ArenaWrapper<S> {
+    fn add_points(&mut self, p: Vec<Point3>) -> usize {
+        self.0.add_points(p)
+    }
+
+    fn query_target(&self, q: usize, t: usize) -> Vec<(usize, Precision)> {
+        self.0.query_target(q, t)
+    }
+
+    fn local_query(&self, q: usize, neighborhood: usize) -> Vec<Vec<usize>> {
+        self.0.local_query(q, neighborhood)
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+struct PointAug<'a> {
+    rng: &'a mut Rng,
+    translation: Point3,
+    jitter_stdev: Precision,
+}
+
+fn box_muller_sin(u1: Precision, u2: Precision) -> Precision {
+    (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).sin()
+}
+
+fn random_translation(rng: &mut Rng, stdev: Precision) -> Point3 {
+    let u1 = rng.f64();
+    let u2 = rng.f64();
+    let u3 = rng.f64();
+    [
+        box_muller_sin(u1, u2) * stdev,
+        box_muller_sin(u2, u3) * stdev,
+        box_muller_sin(u1, u3) * stdev,
+    ]
+}
+
+impl<'a> PointAug<'a> {
+    pub fn new(translation: Point3, jitter_stdev: Precision, rng: &'a mut Rng) -> Self {
+        Self {
+            rng,
+            translation,
+            jitter_stdev,
+        }
+    }
+
+    pub fn new_random(
+        translation_stdev: Precision,
+        jitter_stdev: Precision,
+        rng: &'a mut Rng,
+    ) -> Self {
+        Self::new(
+            random_translation(rng, translation_stdev),
+            jitter_stdev,
+            rng,
+        )
+    }
+
+    pub fn augment(&mut self, orig: &Point3) -> Point3 {
+        let t2 = random_translation(self.rng, self.jitter_stdev);
+        [
+            orig[0] + self.translation[0] + t2[0],
+            orig[1] + self.translation[1] + t2[1],
+            orig[2] + self.translation[2] + t2[2],
+        ]
+    }
+
+    pub fn augment_all(&mut self, orig: &[Point3]) -> Vec<Point3> {
+        orig.iter().map(|p| self.augment(p)).collect()
+    }
+}
+
+pub fn read_augmented(
+    n: usize,
+    rng: &mut Rng,
+    translation_stdev: Precision,
+    jitter_stdev: Precision,
+) -> Vec<Vec<Point3>> {
+    let orig = read_all_points();
+    let mut aug = PointAug::new_random(translation_stdev, jitter_stdev, rng);
+    orig.iter()
+        .cycle()
+        .take(n)
+        .map(|p| aug.augment_all(p))
+        .collect()
 }
