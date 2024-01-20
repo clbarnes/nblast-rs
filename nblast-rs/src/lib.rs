@@ -61,7 +61,7 @@
 //! ```
 //! use nblast::{NblastArena, ScoreCalc, Neuron, Symmetry};
 //!
-//! // create a lookup table for the point match scores
+//! // Create a lookup table for the point match scores
 //! let smat = ScoreCalc::table_from_bins(
 //!   vec![0.0, 0.1, 0.25, 0.5, 1.0, 5.0, f64::INFINITY], // distance thresholds
 //!   vec![0.0, 0.2, 0.4, 0.6, 0.8, 1.0], // dot product thresholds
@@ -75,7 +75,9 @@
 //!   ],
 //! ).expect("could not build score matrix");
 //!
-//! // create an arena to hold your neurons with this score function,
+//! // See the ScoreMatrixBuilder for constructing a score matrix from test data.
+//!
+//! // Create an arena to hold your neurons with this score function,
 //! // whether it should scale the dot products by the colinearity value,
 //! // and how many threads to use (default serial)
 //! let mut arena = NblastArena::new(smat, false).with_threads(2);
@@ -91,7 +93,7 @@
 //! }
 //!
 
-//! // add some neurons built from points and a neighborhood size,
+//! // Add some neurons built from points and a neighborhood size,
 //! // returning their indices in the arena
 //! let idx1 = arena.add_neuron(
 //!     Neuron::new(random_points(6, &mut rng), 5).expect("cannot construct neuron")
@@ -125,8 +127,10 @@ mod table_lookup;
 pub use table_lookup::{BinLookup, NdBinLookup, RangeTable};
 
 pub mod neurons;
-use neurons::rstar::points_to_rtree_tangents_alphas;
 pub use neurons::{NblastNeuron, Neuron, QueryNeuron, TargetNeuron};
+
+#[cfg(not(any(feature = "nabo", feature = "rstar", feature = "kiddo")))]
+compile_error!("one of 'nabo', 'rstar', or 'kiddo' features must be enabled");
 
 /// Floating point precision type used internally
 pub type Precision = f64;
@@ -327,17 +331,11 @@ pub struct PointsTangentsAlphas {
 }
 
 impl PointsTangentsAlphas {
-    /// Calculates tangents from the given points.
-    /// Note that this constructs a spatial index in order to calculate the tangents,
-    /// and then throws it away: you may as well use a [TargetNeuron](trait.TargetNeuron.html)
-    /// type, with regards to performance.
-    /// `k` is the number of points tangents will be calculated with,
-    /// and includes the point itself.
-    pub fn new(points: Vec<Point3>, k: usize) -> Result<Self, &'static str> {
-        points_to_rtree_tangents_alphas(points.iter(), k).map(|(_, tangents_alphas)| Self {
+    pub fn new(points: Vec<Point3>, tangents_alphas: Vec<TangentAlpha>) -> Self {
+        Self {
             points,
             tangents_alphas,
-        })
+        }
     }
 }
 
@@ -884,8 +882,7 @@ mod test {
     #[test]
     fn construct() {
         let points = make_points(&[0., 0., 0.], &[1., 0., 0.], 10);
-        PointsTangentsAlphas::new(points.clone(), N_NEIGHBORS).expect("Query construction failed");
-        Neuron::new(&points, N_NEIGHBORS).expect("Target construction failed");
+        Neuron::new(points, N_NEIGHBORS);
     }
 
     fn is_close(val1: Precision, val2: Precision) -> bool {
@@ -1092,13 +1089,10 @@ mod test {
             RangeTable::new_from_bins(vec![dist_thresholds, dot_thresholds], cells).unwrap(),
         );
 
-        let query = Neuron::new(&make_points(&[0., 0., 0.], &[1., 0., 0.], 10), N_NEIGHBORS)
-            .expect("Construction failed");
-        let target = Neuron::new(
-            &make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10),
-            N_NEIGHBORS,
-        )
-        .expect("Construction failed");
+        let query =
+            Neuron::new(make_points(&[0., 0., 0.], &[1., 0., 0.], 10), N_NEIGHBORS).unwrap();
+        let target =
+            Neuron::new(make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10), N_NEIGHBORS).unwrap();
 
         let mut arena = NblastArena::new(score_calc, false);
         let q_idx = arena.add_neuron(query);

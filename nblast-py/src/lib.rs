@@ -12,8 +12,8 @@ use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2}
 
 use nblast::nalgebra::base::{Unit, Vector3};
 use nblast::{
-    BinLookup, NblastArena, Neuron, NeuronIdx, Precision, RangeTable, ScoreCalc,
-    ScoreMatrixBuilder, Symmetry, TangentAlpha,
+    neurons::kiddo::ExactKiddoTangentsAlphas as Neuron, BinLookup, NblastArena, NeuronIdx,
+    Precision, RangeTable, ScoreCalc, ScoreMatrixBuilder, Symmetry, TangentAlpha,
 };
 
 use nblast::rayon;
@@ -67,10 +67,11 @@ impl ArenaWrapper {
                 .as_array()
                 .rows()
                 .into_iter()
-                .map(|r| [r[0], r[1], r[2]]),
+                .map(|r| [r[0], r[1], r[2]])
+                .collect(),
             self.k,
         )
-        .map_err(PyErr::new::<exceptions::PyRuntimeError, _>)?;
+        .map_err(|e| PyErr::new::<PyValueError, _>(e))?;
         Ok(self.arena.add_neuron(neuron))
     }
 
@@ -109,10 +110,11 @@ impl ArenaWrapper {
                 .as_array()
                 .rows()
                 .into_iter()
-                .map(|r| [r[0], r[1], r[2]]),
+                .map(|r| [r[0], r[1], r[2]])
+                .collect(),
             tangents_alphas,
         )
-        .map_err(PyErr::new::<exceptions::PyRuntimeError, _>)?;
+        .map_err(|e| PyErr::new::<PyValueError, _>(e))?;
         Ok(self.arena.add_neuron(neuron))
     }
 
@@ -356,8 +358,8 @@ fn make_neurons_many(
             points_list
                 .into_par_iter()
                 .map(|ps| {
-                    Neuron::new(ps.into_iter().map(|p| [p[0], p[1], p[2]]), k)
-                        .expect("failed to construct neuron") // todo: error handling
+                    Neuron::new(ps.into_iter().map(|p| [p[0], p[1], p[2]]).collect(), k)
+                        .expect("Invalid neuron")
                 })
                 .collect()
         })
@@ -365,8 +367,8 @@ fn make_neurons_many(
         points_list
             .into_iter()
             .map(|ps| {
-                Neuron::new(ps.into_iter().map(|p| [p[0], p[1], p[2]]), k)
-                    .expect("failed to construct neuron") // todo: error handling
+                Neuron::new(ps.into_iter().map(|p| [p[0], p[1], p[2]]).collect(), k)
+                    .expect("invalid neuron")
             })
             .collect()
     }

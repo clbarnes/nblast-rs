@@ -4,7 +4,10 @@ members = [
   "nblast-py",
   "nblast-rs",
   "nblast-js",
+  "spatial_bench",
 ]
+
+resolver = "2"
 
 # [profile.release]
 # debug = true
