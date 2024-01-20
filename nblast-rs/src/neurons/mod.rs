@@ -1,13 +1,24 @@
 //! Neurites which can be queried against each other.
-use crate::{centroid, DistDot, Normal3, Point3, Precision, ScoreCalc, TangentAlpha};
-
-use self::rstar::RStarTangentsAlphas;
+use crate::{centroid, DistDot, Normal3, Point3, Precision, ScoreCalc};
 
 #[cfg(feature = "kiddo")]
 pub mod kiddo;
 #[cfg(feature = "nabo")]
 pub mod nabo;
+#[cfg(feature = "rstar")]
 pub mod rstar;
+
+cfg_if::cfg_if! {
+    if #[cfg(feature = "kiddo")] {
+        pub type Neuron = self::kiddo::ExactKiddoTangentsAlphas;
+    } else if #[cfg(feature = "rstar")] {
+        pub type Neuron = self::rstar::RStarTangentsAlphas;
+    } else if #[cfg(feature = "nabo")] {
+        pub type Neuron = self::nabo::NaboTangentsAlphas;
+    } else {
+        compile_error!("No spatial query backend selected");
+    }
+}
 
 /// Trait describing a point cloud representing a neuron.
 pub trait NblastNeuron {
@@ -79,74 +90,4 @@ pub trait TargetNeuron: QueryNeuron {
         tangent: &Normal3,
         alpha: Option<Precision>,
     ) -> DistDot;
-}
-
-#[derive(Clone)]
-pub struct Neuron(rstar::RStarTangentsAlphas);
-
-impl Neuron {
-    /// Calculate tangents from constructed R*-tree.
-    /// `k` is the number of points to calculate each tangent with.
-    pub fn new<T: std::borrow::Borrow<Point3>>(
-        points: impl IntoIterator<
-            Item = T,
-            IntoIter = impl Iterator<Item = T> + ExactSizeIterator + Clone,
-        >,
-        k: usize,
-    ) -> Result<Self, &'static str> {
-        Ok(Neuron(RStarTangentsAlphas::new(points, k)?))
-    }
-
-    /// Use pre-calculated tangents.
-    pub fn new_with_tangents_alphas<T: std::borrow::Borrow<Point3>>(
-        points: impl IntoIterator<
-            Item = T,
-            IntoIter = impl Iterator<Item = T> + ExactSizeIterator + Clone,
-        >,
-        tangents_alphas: Vec<TangentAlpha>,
-    ) -> Result<Self, &'static str> {
-        Ok(Neuron(RStarTangentsAlphas::new_with_tangents_alphas(
-            points,
-            tangents_alphas,
-        )?))
-    }
-}
-
-impl NblastNeuron for Neuron {
-    fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    fn points(&self) -> Vec<Point3> {
-        self.0.points()
-    }
-
-    fn tangents(&self) -> Vec<Normal3> {
-        self.0.tangents()
-    }
-
-    fn alphas(&self) -> Vec<Precision> {
-        self.0.alphas()
-    }
-}
-
-impl QueryNeuron for Neuron {
-    fn query_dist_dots(&self, target: &impl TargetNeuron, use_alpha: bool) -> Vec<DistDot> {
-        self.0.query_dist_dots(target, use_alpha)
-    }
-
-    fn self_hit(&self, score_calc: &ScoreCalc, use_alpha: bool) -> Precision {
-        self.0.self_hit(score_calc, use_alpha)
-    }
-}
-
-impl TargetNeuron for Neuron {
-    fn nearest_match_dist_dot(
-        &self,
-        point: &Point3,
-        tangent: &Normal3,
-        alpha: Option<Precision>,
-    ) -> DistDot {
-        self.0.nearest_match_dist_dot(point, tangent, alpha)
-    }
 }

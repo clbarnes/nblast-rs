@@ -10,6 +10,7 @@ type KdTree = ImmutableKdTree<Precision, 3>;
 /// Target neuron using a KDTree from the kiddo crate.
 ///
 /// By default, this uses approximate nearest neighbour for one-off lookups (as used in NBLAST scoring).
+/// However, in tests it is *very* approximate.
 /// See the [ExactKiddoTangentsAlphas] for exact 1NN.
 pub struct KiddoTangentsAlphas {
     tree: KdTree,

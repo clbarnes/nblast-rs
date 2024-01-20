@@ -125,8 +125,10 @@ mod table_lookup;
 pub use table_lookup::{BinLookup, NdBinLookup, RangeTable};
 
 pub mod neurons;
-use neurons::rstar::points_to_rtree_tangents_alphas;
 pub use neurons::{NblastNeuron, Neuron, QueryNeuron, TargetNeuron};
+
+#[cfg(not(any(feature = "nabo", feature = "rstar", feature = "kiddo")))]
+compile_error!("one of 'nabo', 'rstar', or 'kiddo' features must be enabled");
 
 /// Floating point precision type used internally
 pub type Precision = f64;
@@ -327,17 +329,11 @@ pub struct PointsTangentsAlphas {
 }
 
 impl PointsTangentsAlphas {
-    /// Calculates tangents from the given points.
-    /// Note that this constructs a spatial index in order to calculate the tangents,
-    /// and then throws it away: you may as well use a [TargetNeuron](trait.TargetNeuron.html)
-    /// type, with regards to performance.
-    /// `k` is the number of points tangents will be calculated with,
-    /// and includes the point itself.
-    pub fn new(points: Vec<Point3>, k: usize) -> Result<Self, &'static str> {
-        points_to_rtree_tangents_alphas(points.iter(), k).map(|(_, tangents_alphas)| Self {
+    pub fn new(points: Vec<Point3>, tangents_alphas: Vec<TangentAlpha>) -> Self {
+        Self {
             points,
             tangents_alphas,
-        })
+        }
     }
 }
 
@@ -884,8 +880,7 @@ mod test {
     #[test]
     fn construct() {
         let points = make_points(&[0., 0., 0.], &[1., 0., 0.], 10);
-        PointsTangentsAlphas::new(points.clone(), N_NEIGHBORS).expect("Query construction failed");
-        Neuron::new(&points, N_NEIGHBORS).expect("Target construction failed");
+        Neuron::new(points, N_NEIGHBORS);
     }
 
     fn is_close(val1: Precision, val2: Precision) -> bool {
@@ -969,7 +964,7 @@ mod test {
     #[test]
     fn test_neuron() {
         let (points, exp_tan, _exp_alpha) = tangent_data();
-        let tgt = Neuron::new(points, N_NEIGHBORS).unwrap();
+        let tgt = Neuron::new(points, N_NEIGHBORS);
         assert!(equivalent_tangents(&tgt.tangents()[0], &exp_tan));
         // tested from the python side
         // assert_close(tgt.alphas()[0], exp_alpha);
@@ -1092,13 +1087,8 @@ mod test {
             RangeTable::new_from_bins(vec![dist_thresholds, dot_thresholds], cells).unwrap(),
         );
 
-        let query = Neuron::new(&make_points(&[0., 0., 0.], &[1., 0., 0.], 10), N_NEIGHBORS)
-            .expect("Construction failed");
-        let target = Neuron::new(
-            &make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10),
-            N_NEIGHBORS,
-        )
-        .expect("Construction failed");
+        let query = Neuron::new(make_points(&[0., 0., 0.], &[1., 0., 0.], 10), N_NEIGHBORS);
+        let target = Neuron::new(make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10), N_NEIGHBORS);
 
         let mut arena = NblastArena::new(score_calc, false);
         let q_idx = arena.add_neuron(query);

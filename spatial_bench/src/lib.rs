@@ -1,5 +1,4 @@
 use fastrand::Rng;
-use std::collections::HashMap;
 use std::fs::File;
 use std::path::PathBuf;
 
@@ -36,8 +35,6 @@ const NAMES: [&str; 20] = [
     "GadMARCM-F000442_seg002",
     "GadMARCM-F000476_seg001",
 ];
-
-const N_NEIGHBORS: usize = 5;
 
 fn data_dir() -> PathBuf {
     // crate dir
