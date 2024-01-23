@@ -19,7 +19,7 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-  "numpy>=1.21.0"
+  "oldest-supported-numpy"
 ]
 
 [project.urls]
@@ -28,7 +28,7 @@ documentation = "https://pynblast.readthedocs.io/"
 repository = "https://github.com/clbarnes/nblast-rs/nblast-py"
 
 [build-system]
-requires = ["maturin==0.14", "numpy>=1.21"]
+requires = ["maturin==0.14", "oldest-supported-numpy"]
 build-backend = "maturin"
 
 [tool.maturin]
