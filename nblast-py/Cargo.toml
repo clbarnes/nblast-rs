@@ -9,7 +9,7 @@ edition = "2021"
 [dependencies]
 pyo3 = { version = "0.20", features = ["extension-module"] }
 neurarbor = "0.2.0"
-nblast = { path = "../nblast-rs", version = "^0.7.0", features = ["parallel", "kiddo"] }
+nblast = { path = "../nblast-rs", version = "^0.7.1", features = ["parallel", "kiddo"] }
 numpy = "0.20"
 
 [lib]
