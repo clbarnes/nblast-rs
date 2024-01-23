@@ -2,21 +2,21 @@
 maturin==0.14.15
 
 # run
-numpy==1.24.2
+numpy==1.26.3
 
 # test
-pandas==1.5.3
-pytest==7.2.2
-pytest-runner==6.0.0
+pandas==2.2.0
+pytest==7.4.4
+pytest-runner==6.0.1
 
 # bench
 pytest-benchmark==4.0.0
 
 # develop
-pip==23.0.1
-wheel==0.38.4
-watchdog==2.3.1
+pip==23.3.2
+wheel==0.42.0
+watchdog==3.0.0
 ruff
-coverage==7.2.1
-Sphinx==6.1.3
-mypy==1.1.1
+coverage==7.4.0
+Sphinx==7.2.6
+mypy==1.8.0
