@@ -12,8 +12,8 @@ use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2}
 
 use nblast::nalgebra::base::{Unit, Vector3};
 use nblast::{
-    neurons::kiddo::ExactKiddoNeuron as Neuron, BinLookup, NblastArena, NeuronIdx, Precision,
-    RangeTable, ScoreCalc, ScoreMatrixBuilder, Symmetry, TangentAlpha,
+    BinLookup, NblastArena, Neuron, NeuronIdx, Precision, RangeTable, ScoreCalc,
+    ScoreMatrixBuilder, Symmetry, TangentAlpha,
 };
 
 use nblast::rayon;
