@@ -91,12 +91,12 @@ fn points_to_nabo_tangents_alphas(
 }
 
 /// Target neuron using a KDTree from the nabo crate
-pub struct NaboTangentsAlphas {
+pub struct NaboNeuron {
     tree: KDTree<Precision, NaboPointWithIndex>,
     points_tangents_alphas: Vec<(Point3, TangentAlpha)>,
 }
 
-impl NaboTangentsAlphas {
+impl NaboNeuron {
     /// Calculate tangents from constructed R*-tree.
     /// `k` is the number of points to calculate each tangent with.
     pub fn new(points: Vec<Point3>, k: usize) -> Self {
@@ -120,7 +120,7 @@ impl NaboTangentsAlphas {
     }
 }
 
-impl NblastNeuron for NaboTangentsAlphas {
+impl NblastNeuron for NaboNeuron {
     fn len(&self) -> usize {
         self.points_tangents_alphas.len()
     }
@@ -138,7 +138,7 @@ impl NblastNeuron for NaboTangentsAlphas {
     }
 }
 
-impl QueryNeuron for NaboTangentsAlphas {
+impl QueryNeuron for NaboNeuron {
     fn query_dist_dots<'a>(
         &'a self,
         target: &'a impl TargetNeuron,
@@ -176,7 +176,7 @@ impl QueryNeuron for NaboTangentsAlphas {
     }
 }
 
-impl TargetNeuron for NaboTangentsAlphas {
+impl TargetNeuron for NaboNeuron {
     fn nearest_match_dist_dot(
         &self,
         point: &Point3,

@@ -50,7 +50,7 @@
 //! Both are [Neuron](trait.Neuron.html)s.
 //!
 //! [PointsTangentsAlphas](struct.PointsTangentsAlphas.html) and
-//! [RStarTangentsAlphas](struct.RStarTangentsAlphas.html) implement these, respectively.
+//! [RstarNeuron](struct.RstarNeuron.html) implement these, respectively.
 //! Both can be created with pre-calculated tangents and alphas, or calculate them on instantiation.
 //!
 //! The [NblastArena](struct.NblastArena.html) contains a collection of `TargetNeuron`s
@@ -523,6 +523,14 @@ pub enum ScoreCalc {
 }
 
 impl ScoreCalc {
+    /// Construct a table from `N` dist bins, `M` dot bins,
+    /// and the values in `(N-1)*(M-1)` cells.
+    ///
+    /// The bins vecs must be monotonically increasing.
+    /// The first and last values of each
+    /// are effectively ignored and replaced by -inf and +inf respectively.
+    /// Values are given in dot-major order, i.e.
+    /// cells in the same dist bin are next to each other.
     pub fn table_from_bins(
         dists: Vec<Precision>,
         dots: Vec<Precision>,
@@ -534,6 +542,7 @@ impl ScoreCalc {
         )?))
     }
 
+    /// Apply the score function.
     pub fn calc(&self, dist_dot: &DistDot) -> Precision {
         match self {
             // Self::Func(func) => func(dist_dot),
@@ -1068,8 +1077,8 @@ mod test {
     //     let q_points = make_points(&[0., 0., 0.], &[1.0, 0.0, 0.0], 10);
     //     let query = PointsTangentsAlphas::new(q_points.clone(), N_NEIGHBORS)
     //         .expect("Query construction failed");
-    //     let query2 = RStarTangentsAlphas::new(&q_points, N_NEIGHBORS).expect("Construction failed");
-    //     let target = RStarTangentsAlphas::new(
+    //     let query2 = RstarNeuron::new(&q_points, N_NEIGHBORS).expect("Construction failed");
+    //     let target = RstarNeuron::new(
     //         &make_points(&[0.5, 0., 0.], &[1.1, 0., 0.], 10),
     //         N_NEIGHBORS,
     //     )
@@ -1173,7 +1182,7 @@ mod test {
     // #[test]
     // fn alpha_changes_results() {
     //     let (points, _, _) = tangent_data();
-    //     let neuron = RStarTangentsAlphas::new(points, N_NEIGHBORS).unwrap();
+    //     let neuron = RstarNeuron::new(points, N_NEIGHBORS).unwrap();
     //     let score_calc = ScoreCalc::Func(Box::new(|dd: &DistDot| dd.dot));
 
     //     let sh = neuron.self_hit(&score_calc, false);

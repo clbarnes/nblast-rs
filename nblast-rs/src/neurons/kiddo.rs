@@ -9,14 +9,14 @@ type KdTree = ImmutableKdTree<Precision, 3>;
 ///
 /// By default, this uses approximate nearest neighbour for one-off lookups (as used in NBLAST scoring).
 /// However, in tests it is *very* approximate.
-/// See the [ExactKiddoTangentsAlphas] for exact 1NN.
+/// See the [ExactKiddoNeuron] for exact 1NN.
 #[derive(Clone, Debug)]
-pub struct KiddoTangentsAlphas {
+pub struct KiddoNeuron {
     tree: KdTree,
     points_tangents_alphas: Vec<(Point3, TangentAlpha)>,
 }
 
-impl KiddoTangentsAlphas {
+impl KiddoNeuron {
     /// Calculate tangents from constructed R*-tree.
     /// `k` is the number of points to calculate each tangent with.
     pub fn new(points: Vec<Point3>, k: usize) -> Result<Self, &'static str> {
@@ -82,7 +82,7 @@ impl KiddoTangentsAlphas {
     }
 }
 
-impl NblastNeuron for KiddoTangentsAlphas {
+impl NblastNeuron for KiddoNeuron {
     fn len(&self) -> usize {
         self.points_tangents_alphas.len()
     }
@@ -100,7 +100,7 @@ impl NblastNeuron for KiddoTangentsAlphas {
     }
 }
 
-impl QueryNeuron for KiddoTangentsAlphas {
+impl QueryNeuron for KiddoNeuron {
     fn query_dist_dots<'a>(
         &'a self,
         target: &'a impl TargetNeuron,
@@ -138,7 +138,7 @@ impl QueryNeuron for KiddoTangentsAlphas {
     }
 }
 
-impl TargetNeuron for KiddoTangentsAlphas {
+impl TargetNeuron for KiddoNeuron {
     fn nearest_match_dist_dot(
         &self,
         point: &Point3,
@@ -150,13 +150,13 @@ impl TargetNeuron for KiddoTangentsAlphas {
 }
 
 #[derive(Debug, Clone)]
-pub struct ExactKiddoTangentsAlphas(KiddoTangentsAlphas);
+pub struct ExactKiddoNeuron(KiddoNeuron);
 
-impl ExactKiddoTangentsAlphas {
+impl ExactKiddoNeuron {
     /// Calculate tangents from constructed R*-tree.
     /// `k` is the number of points to calculate each tangent with.
     pub fn new(points: Vec<Point3>, k: usize) -> Result<Self, &'static str> {
-        KiddoTangentsAlphas::new(points, k).map(Self)
+        KiddoNeuron::new(points, k).map(Self)
     }
 
     /// Use pre-calculated tangents.
@@ -164,11 +164,11 @@ impl ExactKiddoTangentsAlphas {
         points: Vec<Point3>,
         tangents_alphas: Vec<TangentAlpha>,
     ) -> Result<Self, &'static str> {
-        KiddoTangentsAlphas::new_with_tangents_alphas(points, tangents_alphas).map(Self)
+        KiddoNeuron::new_with_tangents_alphas(points, tangents_alphas).map(Self)
     }
 }
 
-impl NblastNeuron for ExactKiddoTangentsAlphas {
+impl NblastNeuron for ExactKiddoNeuron {
     fn len(&self) -> usize {
         self.0.len()
     }
@@ -186,7 +186,7 @@ impl NblastNeuron for ExactKiddoTangentsAlphas {
     }
 }
 
-impl QueryNeuron for ExactKiddoTangentsAlphas {
+impl QueryNeuron for ExactKiddoNeuron {
     fn query_dist_dots<'a>(
         &'a self,
         target: &'a impl TargetNeuron,
@@ -200,7 +200,7 @@ impl QueryNeuron for ExactKiddoTangentsAlphas {
     }
 }
 
-impl TargetNeuron for ExactKiddoTangentsAlphas {
+impl TargetNeuron for ExactKiddoNeuron {
     fn nearest_match_dist_dot(
         &self,
         point: &Point3,

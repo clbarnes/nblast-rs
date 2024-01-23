@@ -5,12 +5,12 @@ use crate::{
 use bosque::tree::{build_tree, build_tree_with_indices, nearest_k, nearest_one};
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct BosqueTangentsAlphas {
+pub struct BosqueNeuron {
     points: Vec<Point3>,
     tangents_alphas: Vec<TangentAlpha>,
 }
 
-impl BosqueTangentsAlphas {
+impl BosqueNeuron {
     pub fn new(mut points: Vec<Point3>, k: usize) -> Result<Self, &'static str> {
         if points.len() < k {
             return Err("Not enough points to calculate neighborhood");
@@ -54,7 +54,7 @@ impl BosqueTangentsAlphas {
     }
 }
 
-impl NblastNeuron for BosqueTangentsAlphas {
+impl NblastNeuron for BosqueNeuron {
     fn len(&self) -> usize {
         self.points.len()
     }
@@ -72,7 +72,7 @@ impl NblastNeuron for BosqueTangentsAlphas {
     }
 }
 
-impl QueryNeuron for BosqueTangentsAlphas {
+impl QueryNeuron for BosqueNeuron {
     fn query_dist_dots<'a>(
         &'a self,
         target: &'a impl crate::TargetNeuron,
@@ -118,7 +118,7 @@ impl QueryNeuron for BosqueTangentsAlphas {
     }
 }
 
-impl TargetNeuron for BosqueTangentsAlphas {
+impl TargetNeuron for BosqueNeuron {
     fn nearest_match_dist_dot(
         &self,
         point: &Point3,
@@ -153,15 +153,15 @@ mod tests {
     #[cfg(feature = "kiddo")]
     #[test]
     fn expected_idxs() {
-        use crate::neurons::kiddo::ExactKiddoTangentsAlphas;
+        use crate::neurons::kiddo::ExactKiddoNeuron;
 
         let mut rng = Rng::with_seed(1991);
         let pts = random_points(100, &mut rng);
-        let t_kid = ExactKiddoTangentsAlphas::new(pts.clone(), 5).unwrap();
-        let b_kid = BosqueTangentsAlphas::new(pts, 5).unwrap();
+        let t_kid = ExactKiddoNeuron::new(pts.clone(), 5).unwrap();
+        let b_kid = BosqueNeuron::new(pts, 5).unwrap();
 
         let pts2 = random_points(5, &mut rng);
-        let query = ExactKiddoTangentsAlphas::new(pts2, 5).unwrap();
+        let query = ExactKiddoNeuron::new(pts2, 5).unwrap();
 
         let t_res: Vec<_> = query.query_dist_dots(&t_kid, false).collect();
         let b_res: Vec<_> = query.query_dist_dots(&b_kid, false).collect();

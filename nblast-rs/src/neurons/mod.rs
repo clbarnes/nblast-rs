@@ -1,4 +1,8 @@
 //! Neurites which can be queried against each other.
+//!
+//! Spatial lookups are the slowest part of NBLAST.
+//! As such, there are [NblastNeuron] implementations here using a number of different backends selected at compile time using cargo features.
+//! [Neuron] is a convenient type alias for our recommended backend given those available.
 use crate::{centroid, DistDot, Normal3, Point3, Precision, ScoreCalc};
 
 #[cfg(feature = "bosque")]
@@ -12,13 +16,13 @@ pub mod rstar;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "kiddo")] {
-        pub type Neuron = self::kiddo::ExactKiddoTangentsAlphas;
+        pub type Neuron = self::kiddo::ExactKiddoNeuron;
     } else if #[cfg(feature = "bosque")] {
-        pub type Neuron = self::bosque::BosqueTangentsAlphas;
+        pub type Neuron = self::bosque::BosqueNeuron;
     } else if #[cfg(feature = "rstar")] {
-        pub type Neuron = self::rstar::RStarTangentsAlphas;
+        pub type Neuron = self::rstar::RstarNeuron;
     } else if #[cfg(feature = "nabo")] {
-        pub type Neuron = self::nabo::NaboTangentsAlphas;
+        pub type Neuron = self::nabo::NaboNeuron;
     } else {
         compile_error!("No spatial query backend selected");
     }
@@ -56,7 +60,7 @@ pub trait NblastNeuron {
 
 /// Trait for objects which can be used as queries
 /// (not necessarily as targets) with NBLAST.
-/// See [TargetNeuron](trait.TargetNeuron.html).
+/// See [TargetNeuron].
 pub trait QueryNeuron: NblastNeuron {
     /// Calculate the distance and (alpha-scaled) absolute dot products for point matches
     /// between this and a target neuron.

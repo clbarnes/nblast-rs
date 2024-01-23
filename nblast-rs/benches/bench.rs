@@ -7,12 +7,12 @@ use csv::ReaderBuilder;
 use fastrand::Rng;
 
 #[cfg(feature = "bosque")]
-use nblast::neurons::bosque::BosqueTangentsAlphas;
+use nblast::neurons::bosque::BosqueNeuron;
 #[cfg(feature = "kiddo")]
-use nblast::neurons::kiddo::{ExactKiddoTangentsAlphas, KiddoTangentsAlphas};
+use nblast::neurons::kiddo::{ExactKiddoNeuron, KiddoNeuron};
 #[cfg(feature = "nabo")]
-use nblast::neurons::nabo::NaboTangentsAlphas;
-use nblast::neurons::rstar::RStarTangentsAlphas;
+use nblast::neurons::nabo::NaboNeuron;
+use nblast::neurons::rstar::RstarNeuron;
 use nblast::{
     BinLookup, NblastArena, NblastNeuron, Point3, Precision, QueryNeuron, RangeTable, ScoreCalc,
     ScoreMatrixBuilder, TangentAlpha,
@@ -250,74 +250,72 @@ fn get_score_fn() -> ScoreCalc {
 
 fn bench_query_rstar(b: &mut Bencher) {
     let score_fn = get_score_fn();
-    let query =
-        RStarTangentsAlphas::new(&read_points(NAMES[0]), N_NEIGHBORS).expect("couldn't parse");
-    let target =
-        RStarTangentsAlphas::new(&read_points(NAMES[1]), N_NEIGHBORS).expect("couldn't parse");
+    let query = RstarNeuron::new(&read_points(NAMES[0]), N_NEIGHBORS).expect("couldn't parse");
+    let target = RstarNeuron::new(&read_points(NAMES[1]), N_NEIGHBORS).expect("couldn't parse");
 
     b.iter(|| query.query(&target, false, &score_fn))
 }
 
 fn bench_construction_rstar(b: &mut Bencher) {
     let points = read_points(NAMES[0]);
-    b.iter(|| RStarTangentsAlphas::new(&points, N_NEIGHBORS).expect("couldn't parse"));
+    b.iter(|| RstarNeuron::new(&points, N_NEIGHBORS).expect("couldn't parse"));
 }
 
 fn bench_construction_nabo(b: &mut Bencher) {
     let points = read_points(NAMES[0]);
-    b.iter(|| NaboTangentsAlphas::new(points.clone(), N_NEIGHBORS))
+    b.iter(|| NaboNeuron::new(points.clone(), N_NEIGHBORS))
 }
 
 fn bench_construction_kiddo(b: &mut Bencher) {
     let points = read_points(NAMES[0]);
-    b.iter(|| KiddoTangentsAlphas::new(points.clone(), N_NEIGHBORS))
+    b.iter(|| KiddoNeuron::new(points.clone(), N_NEIGHBORS))
 }
 
 fn bench_construction_exact_kiddo(b: &mut Bencher) {
     let points = read_points(NAMES[0]);
-    b.iter(|| ExactKiddoTangentsAlphas::new(points.clone(), N_NEIGHBORS))
+    b.iter(|| ExactKiddoNeuron::new(points.clone(), N_NEIGHBORS))
 }
 
 fn bench_construction_bosque(b: &mut Bencher) {
     let points = read_points(NAMES[0]);
-    b.iter(|| BosqueTangentsAlphas::new(points.clone(), N_NEIGHBORS))
+    b.iter(|| BosqueNeuron::new(points.clone(), N_NEIGHBORS))
 }
 
 fn bench_query_nabo(b: &mut Bencher) {
     let score_fn = get_score_fn();
-    let query = NaboTangentsAlphas::new(read_points(NAMES[0]), N_NEIGHBORS);
-    let target = NaboTangentsAlphas::new(read_points(NAMES[1]), N_NEIGHBORS);
+    let query = NaboNeuron::new(read_points(NAMES[0]), N_NEIGHBORS);
+    let target = NaboNeuron::new(read_points(NAMES[1]), N_NEIGHBORS);
 
     b.iter(|| query.query(&target, false, &score_fn))
 }
 
 fn bench_query_kiddo(b: &mut Bencher) {
     let score_fn = get_score_fn();
-    let query = KiddoTangentsAlphas::new(read_points(NAMES[0]), N_NEIGHBORS).unwrap();
-    let target = KiddoTangentsAlphas::new(read_points(NAMES[1]), N_NEIGHBORS).unwrap();
+    let query = KiddoNeuron::new(read_points(NAMES[0]), N_NEIGHBORS).unwrap();
+    let target = KiddoNeuron::new(read_points(NAMES[1]), N_NEIGHBORS).unwrap();
 
     b.iter(|| query.query(&target, false, &score_fn))
 }
 
 fn bench_query_exact_kiddo(b: &mut Bencher) {
     let score_fn = get_score_fn();
-    let query = ExactKiddoTangentsAlphas::new(read_points(NAMES[0]), N_NEIGHBORS).unwrap();
-    let target = ExactKiddoTangentsAlphas::new(read_points(NAMES[1]), N_NEIGHBORS).unwrap();
+    let query = ExactKiddoNeuron::new(read_points(NAMES[0]), N_NEIGHBORS).unwrap();
+    let target = ExactKiddoNeuron::new(read_points(NAMES[1]), N_NEIGHBORS).unwrap();
 
     b.iter(|| query.query(&target, false, &score_fn))
 }
 
 fn bench_query_bosque(b: &mut Bencher) {
     let score_fn = get_score_fn();
-    let query = BosqueTangentsAlphas::new(read_points(NAMES[0]), N_NEIGHBORS).unwrap();
-    let target = BosqueTangentsAlphas::new(read_points(NAMES[1]), N_NEIGHBORS).unwrap();
+    let query = BosqueNeuron::new(read_points(NAMES[0]), N_NEIGHBORS).unwrap();
+    let target = BosqueNeuron::new(read_points(NAMES[1]), N_NEIGHBORS).unwrap();
 
     b.iter(|| query.query(&target, false, &score_fn))
 }
 
 fn bench_construction_with_tangents_rstar(b: &mut Bencher) {
     let points = read_points(NAMES[0]);
-    let neuron = RStarTangentsAlphas::new(&points, N_NEIGHBORS).expect("couldn't parse");
+    let neuron = RstarNeuron::new(&points, N_NEIGHBORS).expect("couldn't parse");
     let tangents_alphas: Vec<_> = neuron
         .tangents()
         .zip(neuron.alphas())
@@ -326,14 +324,14 @@ fn bench_construction_with_tangents_rstar(b: &mut Bencher) {
             alpha: a,
         })
         .collect();
-    b.iter(|| RStarTangentsAlphas::new_with_tangents_alphas(&points, tangents_alphas.clone()));
+    b.iter(|| RstarNeuron::new_with_tangents_alphas(&points, tangents_alphas.clone()));
 }
 
 fn bench_arena_construction(b: &mut Bencher) {
     let score_fn = get_score_fn();
     let pointtangents: Vec<_> = NAMES
         .iter()
-        .map(|n| RStarTangentsAlphas::new(&read_points(n), N_NEIGHBORS).expect("couldn't parse"))
+        .map(|n| RstarNeuron::new(&read_points(n), N_NEIGHBORS).expect("couldn't parse"))
         .collect();
     b.iter(|| {
         let mut arena = NblastArena::new(score_fn.clone(), false);
@@ -346,11 +344,9 @@ fn bench_arena_construction(b: &mut Bencher) {
 fn bench_arena_query(b: &mut Bencher) {
     let mut arena = NblastArena::new(get_score_fn(), false);
     let p0 = read_points(NAMES[0]);
-    let idx0 =
-        arena.add_neuron(RStarTangentsAlphas::new(&p0, N_NEIGHBORS).expect("couldn't parse"));
+    let idx0 = arena.add_neuron(RstarNeuron::new(&p0, N_NEIGHBORS).expect("couldn't parse"));
     let p1 = read_points(NAMES[1]);
-    let idx1 =
-        arena.add_neuron(RStarTangentsAlphas::new(&p1, N_NEIGHBORS).expect("couldn't parse"));
+    let idx1 = arena.add_neuron(RstarNeuron::new(&p1, N_NEIGHBORS).expect("couldn't parse"));
 
     b.iter(|| arena.query_target(idx0, idx1, false, &None));
 }
@@ -358,11 +354,9 @@ fn bench_arena_query(b: &mut Bencher) {
 fn bench_arena_query_norm(b: &mut Bencher) {
     let mut arena = NblastArena::new(get_score_fn(), false);
     let p0 = read_points(NAMES[0]);
-    let idx0 =
-        arena.add_neuron(RStarTangentsAlphas::new(&p0, N_NEIGHBORS).expect("couldn't parse"));
+    let idx0 = arena.add_neuron(RstarNeuron::new(&p0, N_NEIGHBORS).expect("couldn't parse"));
     let p1 = read_points(NAMES[1]);
-    let idx1 =
-        arena.add_neuron(RStarTangentsAlphas::new(&p1, N_NEIGHBORS).expect("couldn't parse"));
+    let idx1 = arena.add_neuron(RstarNeuron::new(&p1, N_NEIGHBORS).expect("couldn't parse"));
 
     b.iter(|| arena.query_target(idx0, idx1, true, &None));
 }
@@ -370,11 +364,9 @@ fn bench_arena_query_norm(b: &mut Bencher) {
 fn bench_arena_query_geom(b: &mut Bencher) {
     let mut arena = NblastArena::new(get_score_fn(), false);
     let p0 = read_points(NAMES[0]);
-    let idx0 =
-        arena.add_neuron(RStarTangentsAlphas::new(&p0, N_NEIGHBORS).expect("couldn't parse"));
+    let idx0 = arena.add_neuron(RstarNeuron::new(&p0, N_NEIGHBORS).expect("couldn't parse"));
     let p1 = read_points(NAMES[1]);
-    let idx1 =
-        arena.add_neuron(RStarTangentsAlphas::new(&p1, N_NEIGHBORS).expect("couldn't parse"));
+    let idx1 = arena.add_neuron(RstarNeuron::new(&p1, N_NEIGHBORS).expect("couldn't parse"));
 
     b.iter(|| arena.query_target(idx0, idx1, false, &Some(nblast::Symmetry::GeometricMean)));
 }
@@ -382,11 +374,9 @@ fn bench_arena_query_geom(b: &mut Bencher) {
 fn bench_arena_query_norm_geom(b: &mut Bencher) {
     let mut arena = NblastArena::new(get_score_fn(), false);
     let p0 = read_points(NAMES[0]);
-    let idx0 =
-        arena.add_neuron(RStarTangentsAlphas::new(&p0, N_NEIGHBORS).expect("couldn't parse"));
+    let idx0 = arena.add_neuron(RstarNeuron::new(&p0, N_NEIGHBORS).expect("couldn't parse"));
     let p1 = read_points(NAMES[1]);
-    let idx1 =
-        arena.add_neuron(RStarTangentsAlphas::new(&p1, N_NEIGHBORS).expect("couldn't parse"));
+    let idx1 = arena.add_neuron(RstarNeuron::new(&p1, N_NEIGHBORS).expect("couldn't parse"));
 
     b.iter(|| arena.query_target(idx0, idx1, true, &Some(nblast::Symmetry::GeometricMean)));
 }
@@ -397,9 +387,7 @@ fn bench_all_to_all_serial_rstar(b: &mut Bencher) {
     for name in NAMES.iter() {
         let points = read_points(name);
         idxs.push(
-            arena.add_neuron(
-                RStarTangentsAlphas::new(&points, N_NEIGHBORS).expect("couldn't parse"),
-            ),
+            arena.add_neuron(RstarNeuron::new(&points, N_NEIGHBORS).expect("couldn't parse")),
         );
     }
 
@@ -411,7 +399,7 @@ fn bench_all_to_all_serial_nabo(b: &mut Bencher) {
     let mut idxs = Vec::new();
     for name in NAMES.iter() {
         let points = read_points(name);
-        idxs.push(arena.add_neuron(NaboTangentsAlphas::new(points, N_NEIGHBORS)));
+        idxs.push(arena.add_neuron(NaboNeuron::new(points, N_NEIGHBORS)));
     }
 
     b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, None));
@@ -422,7 +410,7 @@ fn bench_all_to_all_serial_kiddo(b: &mut Bencher) {
     let mut idxs = Vec::new();
     for name in NAMES.iter() {
         let points = read_points(name);
-        idxs.push(arena.add_neuron(KiddoTangentsAlphas::new(points, N_NEIGHBORS).unwrap()));
+        idxs.push(arena.add_neuron(KiddoNeuron::new(points, N_NEIGHBORS).unwrap()));
     }
 
     b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, None));
@@ -433,7 +421,7 @@ fn bench_all_to_all_serial_exact_kiddo(b: &mut Bencher) {
     let mut idxs = Vec::new();
     for name in NAMES.iter() {
         let points = read_points(name);
-        idxs.push(arena.add_neuron(ExactKiddoTangentsAlphas::new(points, N_NEIGHBORS).unwrap()));
+        idxs.push(arena.add_neuron(ExactKiddoNeuron::new(points, N_NEIGHBORS).unwrap()));
     }
 
     b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, None));
@@ -444,7 +432,7 @@ fn bench_all_to_all_serial_bosque(b: &mut Bencher) {
     let mut idxs = Vec::new();
     for name in NAMES.iter() {
         let points = read_points(name);
-        idxs.push(arena.add_neuron(BosqueTangentsAlphas::new(points, N_NEIGHBORS).unwrap()));
+        idxs.push(arena.add_neuron(BosqueNeuron::new(points, N_NEIGHBORS).unwrap()));
     }
 
     b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, None));
@@ -457,20 +445,18 @@ fn bench_all_to_all_parallel(b: &mut Bencher) {
     for name in NAMES.iter() {
         let points = read_points(name);
         idxs.push(
-            arena.add_neuron(
-                RStarTangentsAlphas::new(&points, N_NEIGHBORS).expect("couldn't parse"),
-            ),
+            arena.add_neuron(RstarNeuron::new(&points, N_NEIGHBORS).expect("couldn't parse")),
         );
     }
 
     b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, None));
 }
 
-fn make_smatb_kiddo() -> ScoreMatrixBuilder<ExactKiddoTangentsAlphas> {
+fn make_smatb_kiddo() -> ScoreMatrixBuilder<ExactKiddoNeuron> {
     let (all_points, matches, nonmatches) = match_nonmatch(10);
     let neurons: Vec<_> = all_points
         .into_iter()
-        .map(|ps| ExactKiddoTangentsAlphas::new(ps, N_NEIGHBORS).unwrap())
+        .map(|ps| ExactKiddoNeuron::new(ps, N_NEIGHBORS).unwrap())
         .collect();
 
     let mut smatb = ScoreMatrixBuilder::new(neurons.clone(), 1991);

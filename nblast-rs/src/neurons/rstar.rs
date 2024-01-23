@@ -40,12 +40,12 @@ pub(crate) fn points_to_rtree_tangents_alphas(
 
 /// Target neuron using an [R*-tree](https://en.wikipedia.org/wiki/R*_tree) for spatial queries.
 #[derive(Clone)]
-pub struct RStarTangentsAlphas {
+pub struct RstarNeuron {
     rtree: RTree<PointWithIndex>,
     tangents_alphas: Vec<TangentAlpha>,
 }
 
-impl RStarTangentsAlphas {
+impl RstarNeuron {
     /// Calculate tangents from constructed R*-tree.
     /// `k` is the number of points to calculate each tangent with.
     pub fn new<T: std::borrow::Borrow<Point3>>(
@@ -56,7 +56,7 @@ impl RStarTangentsAlphas {
         k: usize,
     ) -> Result<Self, &'static str> {
         points_to_rtree_tangents_alphas(points.into_iter(), k).map(|(rtree, tangents_alphas)| {
-            RStarTangentsAlphas {
+            RstarNeuron {
                 rtree,
                 tangents_alphas,
             }
@@ -86,7 +86,7 @@ impl RStarTangentsAlphas {
     }
 }
 
-impl NblastNeuron for RStarTangentsAlphas {
+impl NblastNeuron for RstarNeuron {
     fn len(&self) -> usize {
         self.tangents_alphas.len()
     }
@@ -104,7 +104,7 @@ impl NblastNeuron for RStarTangentsAlphas {
     }
 }
 
-impl QueryNeuron for RStarTangentsAlphas {
+impl QueryNeuron for RstarNeuron {
     fn query_dist_dots<'a>(
         &'a self,
         target: &'a impl TargetNeuron,
@@ -162,7 +162,7 @@ impl QueryNeuron for RStarTangentsAlphas {
     }
 }
 
-impl TargetNeuron for RStarTangentsAlphas {
+impl TargetNeuron for RstarNeuron {
     fn nearest_match_dist_dot(
         &self,
         point: &Point3,
