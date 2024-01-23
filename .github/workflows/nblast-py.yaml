@@ -79,5 +79,5 @@ jobs:
         with:
           manylinux: auto
           command: publish
-          args: -u __token__ -p ${{ secrets.MATURIN_PASSWORD }} --skip-existing --universal2
+          args: -u __token__ -p ${{ secrets.MATURIN_PASSWORD }} --skip-existing -- --universal2
         name: Deploy distribution
