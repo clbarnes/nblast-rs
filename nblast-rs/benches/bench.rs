@@ -6,6 +6,8 @@ use bencher::{benchmark_group, benchmark_main, Bencher};
 use csv::ReaderBuilder;
 use fastrand::Rng;
 
+#[cfg(feature = "bosque")]
+use nblast::neurons::bosque::BosqueTangentsAlphas;
 #[cfg(feature = "kiddo")]
 use nblast::neurons::kiddo::{ExactKiddoTangentsAlphas, KiddoTangentsAlphas};
 #[cfg(feature = "nabo")]
@@ -276,6 +278,11 @@ fn bench_construction_exact_kiddo(b: &mut Bencher) {
     b.iter(|| ExactKiddoTangentsAlphas::new(points.clone(), N_NEIGHBORS))
 }
 
+fn bench_construction_bosque(b: &mut Bencher) {
+    let points = read_points(NAMES[0]);
+    b.iter(|| BosqueTangentsAlphas::new(points.clone(), N_NEIGHBORS))
+}
+
 fn bench_query_nabo(b: &mut Bencher) {
     let score_fn = get_score_fn();
     let query = NaboTangentsAlphas::new(read_points(NAMES[0]), N_NEIGHBORS);
@@ -300,16 +307,23 @@ fn bench_query_exact_kiddo(b: &mut Bencher) {
     b.iter(|| query.query(&target, false, &score_fn))
 }
 
+fn bench_query_bosque(b: &mut Bencher) {
+    let score_fn = get_score_fn();
+    let query = BosqueTangentsAlphas::new(read_points(NAMES[0]), N_NEIGHBORS).unwrap();
+    let target = BosqueTangentsAlphas::new(read_points(NAMES[1]), N_NEIGHBORS).unwrap();
+
+    b.iter(|| query.query(&target, false, &score_fn))
+}
+
 fn bench_construction_with_tangents_rstar(b: &mut Bencher) {
     let points = read_points(NAMES[0]);
     let neuron = RStarTangentsAlphas::new(&points, N_NEIGHBORS).expect("couldn't parse");
     let tangents_alphas: Vec<_> = neuron
         .tangents()
-        .iter()
-        .zip(neuron.alphas().iter())
+        .zip(neuron.alphas())
         .map(|(t, a)| TangentAlpha {
-            tangent: *t,
-            alpha: *a,
+            tangent: t,
+            alpha: a,
         })
         .collect();
     b.iter(|| RStarTangentsAlphas::new_with_tangents_alphas(&points, tangents_alphas.clone()));
@@ -425,6 +439,17 @@ fn bench_all_to_all_serial_exact_kiddo(b: &mut Bencher) {
     b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, None));
 }
 
+fn bench_all_to_all_serial_bosque(b: &mut Bencher) {
+    let mut arena = NblastArena::new(get_score_fn(), false);
+    let mut idxs = Vec::new();
+    for name in NAMES.iter() {
+        let points = read_points(name);
+        idxs.push(arena.add_neuron(BosqueTangentsAlphas::new(points, N_NEIGHBORS).unwrap()));
+    }
+
+    b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, None));
+}
+
 #[cfg(feature = "parallel")]
 fn bench_all_to_all_parallel(b: &mut Bencher) {
     let mut arena = NblastArena::new(get_score_fn(), false).with_threads(0);
@@ -441,11 +466,11 @@ fn bench_all_to_all_parallel(b: &mut Bencher) {
     b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, None));
 }
 
-fn make_smatb_rstar() -> ScoreMatrixBuilder<RStarTangentsAlphas> {
+fn make_smatb_kiddo() -> ScoreMatrixBuilder<ExactKiddoTangentsAlphas> {
     let (all_points, matches, nonmatches) = match_nonmatch(10);
     let neurons: Vec<_> = all_points
-        .iter()
-        .map(|ps| RStarTangentsAlphas::new(ps, N_NEIGHBORS).unwrap())
+        .into_iter()
+        .map(|ps| ExactKiddoTangentsAlphas::new(ps, N_NEIGHBORS).unwrap())
         .collect();
 
     let mut smatb = ScoreMatrixBuilder::new(neurons.clone(), 1991);
@@ -458,8 +483,8 @@ fn make_smatb_rstar() -> ScoreMatrixBuilder<RStarTangentsAlphas> {
     smatb
 }
 
-fn bench_smatbuild_rstar_ser(b: &mut Bencher) {
-    let mut smatb = make_smatb_rstar();
+fn bench_smatbuild_ser(b: &mut Bencher) {
+    let mut smatb = make_smatb_kiddo();
     let (dist, dot, _cells) = read_smat();
     smatb.set_dot_lookup(BinLookup::new(dot, (true, true)).unwrap());
     smatb.set_dist_lookup(BinLookup::new(dist, (true, true)).unwrap());
@@ -467,8 +492,8 @@ fn bench_smatbuild_rstar_ser(b: &mut Bencher) {
     b.iter(|| smatb.build())
 }
 
-fn bench_smatbuild_rstar_par(b: &mut Bencher) {
-    let mut smatb = make_smatb_rstar();
+fn bench_smatbuild_par(b: &mut Bencher) {
+    let mut smatb = make_smatb_kiddo();
     let (dist, dot, _cells) = read_smat();
 
     smatb.set_dot_lookup(BinLookup::new(dot, (true, true)).unwrap());
@@ -479,8 +504,8 @@ fn bench_smatbuild_rstar_par(b: &mut Bencher) {
     b.iter(|| smatb.build())
 }
 
-fn bench_smatbuild_rstar_quantiles(b: &mut Bencher) {
-    let mut smatb = make_smatb_rstar();
+fn bench_smatbuild_quantiles(b: &mut Bencher) {
+    let mut smatb = make_smatb_kiddo();
     let (dist, dot, _cells) = read_smat();
 
     smatb.set_n_dot_bins(dot.len() - 1);
@@ -513,6 +538,14 @@ benchmark_group!(
     bench_all_to_all_serial_kiddo,
 );
 
+#[cfg(feature = "bosque")]
+benchmark_group!(
+    impl_bosque,
+    bench_construction_bosque,
+    bench_query_bosque,
+    bench_all_to_all_serial_bosque,
+);
+
 #[cfg(feature = "kiddo")]
 benchmark_group!(
     impl_exact_kiddo,
@@ -531,11 +564,19 @@ benchmark_group!(
     bench_arena_construction,
 );
 
+#[cfg(feature = "kiddo")]
 benchmark_group!(
     smat,
-    bench_smatbuild_rstar_ser,
-    bench_smatbuild_rstar_par,
-    bench_smatbuild_rstar_quantiles,
+    bench_smatbuild_ser,
+    bench_smatbuild_par,
+    bench_smatbuild_quantiles,
 );
 
-benchmark_main!(impl_rstar, impl_nabo, impl_kiddo, arena, smat);
+benchmark_main!(
+    impl_rstar,
+    impl_nabo,
+    impl_exact_kiddo,
+    impl_bosque,
+    arena,
+    smat
+);

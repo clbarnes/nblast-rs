@@ -195,9 +195,12 @@ impl ArenaWrapper {
 
     pub fn points<'py>(&self, py: Python<'py>, idx: NeuronIdx) -> Option<&'py PyArray2<Precision>> {
         let points = self.arena.points(idx)?;
-        let len = points.len();
-        let v = points.into_iter().flatten().collect::<Vec<_>>();
-        Some(Array::from_shape_vec((len, 3), v).unwrap().into_pyarray(py))
+        let v = points.flatten().collect::<Vec<_>>();
+        Some(
+            Array::from_shape_vec((v.len() / 3, 3), v)
+                .unwrap()
+                .into_pyarray(py),
+        )
     }
 
     pub fn tangents<'py>(
@@ -206,7 +209,7 @@ impl ArenaWrapper {
         idx: NeuronIdx,
     ) -> Option<&'py PyArray2<Precision>> {
         let tangents = self.arena.tangents(idx)?;
-        let len = tangents.len();
+        let len = self.arena.size_of(idx)?;
 
         let v = tangents
             .into_iter()
@@ -218,7 +221,9 @@ impl ArenaWrapper {
     }
 
     pub fn alphas<'py>(&self, py: Python<'py>, idx: NeuronIdx) -> Option<&'py PyArray1<Precision>> {
-        self.arena.alphas(idx).map(|v| PyArray1::from_vec(py, v))
+        self.arena
+            .alphas(idx)
+            .map(|v| PyArray1::from_vec(py, v.collect()))
     }
 }
 

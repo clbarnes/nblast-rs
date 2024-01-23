@@ -1,8 +1,6 @@
 //! Neuron types using the [rstar](https://crates.io/crates/rstar) crate as a backend.
 use super::{NblastNeuron, QueryNeuron, TargetNeuron};
-use crate::{
-    centroid, geometric_mean, DistDot, Normal3, Point3, Precision, ScoreCalc, TangentAlpha,
-};
+use crate::{geometric_mean, DistDot, Normal3, Point3, Precision, ScoreCalc, TangentAlpha};
 use rstar::{primitives::GeomWithData, PointDistance, RTree};
 use std::borrow::Borrow;
 
@@ -27,13 +25,12 @@ pub(crate) fn points_to_rtree_tangents_alphas(
         return Err("Too few points to generate tangents");
     }
     let rtree = points_to_rtree(points.clone())?;
-    let tangents_alphas = points
-        .map(|p| {
+    let tangents_alphas = rtree
+        .iter()
+        .map(|geom| {
+            let p = geom.geom();
             TangentAlpha::new_from_points(
-                rtree
-                    .nearest_neighbor_iter(p.borrow())
-                    .take(k)
-                    .map(|pwd| pwd.geom()),
+                rtree.nearest_neighbor_iter(p).take(k).map(|pwd| pwd.geom()),
             )
         })
         .collect();
@@ -74,9 +71,17 @@ impl RStarTangentsAlphas {
         >,
         tangents_alphas: Vec<TangentAlpha>,
     ) -> Result<Self, &'static str> {
-        points_to_rtree(points.into_iter()).map(|rtree| RStarTangentsAlphas {
+        let rtree = points_to_rtree(points.into_iter())?;
+        let ta = rtree
+            .iter()
+            .map(|gwd| {
+                let idx = gwd.data;
+                tangents_alphas[idx]
+            })
+            .collect();
+        Ok(Self {
             rtree,
-            tangents_alphas,
+            tangents_alphas: ta,
         })
     }
 }
@@ -86,39 +91,34 @@ impl NblastNeuron for RStarTangentsAlphas {
         self.tangents_alphas.len()
     }
 
-    fn points(&self) -> Vec<Point3> {
-        let mut unsorted: Vec<&PointWithIndex> = self.rtree.iter().collect();
-        unsorted.sort_by_key(|pwd| pwd.data);
-        unsorted.into_iter().map(|pwd| *pwd.geom()).collect()
+    fn points(&self) -> impl Iterator<Item = Point3> + '_ {
+        self.rtree.iter().map(|gwd| *gwd.geom())
     }
 
-    fn centroid(&self) -> Point3 {
-        centroid(self.rtree.iter().map(|p| p.geom()))
+    fn tangents(&self) -> impl Iterator<Item = Normal3> + '_ {
+        self.tangents_alphas.iter().map(|ta| ta.tangent)
     }
 
-    fn tangents(&self) -> Vec<Normal3> {
-        self.tangents_alphas.iter().map(|ta| ta.tangent).collect()
-    }
-
-    fn alphas(&self) -> Vec<Precision> {
-        self.tangents_alphas.iter().map(|ta| ta.alpha).collect()
+    fn alphas(&self) -> impl Iterator<Item = Precision> + '_ {
+        self.tangents_alphas.iter().map(|ta| ta.alpha)
     }
 }
 
 impl QueryNeuron for RStarTangentsAlphas {
-    fn query_dist_dots(&self, target: &impl TargetNeuron, use_alpha: bool) -> Vec<DistDot> {
-        self.rtree
-            .iter()
-            .map(|q_pt_idx| {
-                let tangent_alpha = self.tangents_alphas[q_pt_idx.data];
-                let alpha = if use_alpha {
-                    Some(tangent_alpha.alpha)
-                } else {
-                    None
-                };
-                target.nearest_match_dist_dot(q_pt_idx.geom(), &tangent_alpha.tangent, alpha)
-            })
-            .collect()
+    fn query_dist_dots<'a>(
+        &'a self,
+        target: &'a impl TargetNeuron,
+        use_alpha: bool,
+    ) -> impl Iterator<Item = DistDot> + 'a {
+        self.rtree.iter().map(move |q_pt_idx| {
+            let tangent_alpha = self.tangents_alphas[q_pt_idx.data];
+            let alpha = if use_alpha {
+                Some(tangent_alpha.alpha)
+            } else {
+                None
+            };
+            target.nearest_match_dist_dot(q_pt_idx.geom(), &tangent_alpha.tangent, alpha)
+        })
     }
 
     fn query(

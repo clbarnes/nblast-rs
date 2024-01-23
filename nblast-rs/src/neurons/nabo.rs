@@ -1,8 +1,6 @@
 //! Neuron types using the [nabo](https://crates.io/crates/nabo) crate as a backend.
 use super::{NblastNeuron, QueryNeuron, TargetNeuron};
-use crate::{
-    centroid, geometric_mean, DistDot, Normal3, Point3, Precision, ScoreCalc, TangentAlpha,
-};
+use crate::{geometric_mean, DistDot, Normal3, Point3, Precision, ScoreCalc, TangentAlpha};
 use nabo::{KDTree, NotNan, Point};
 use std::borrow::Borrow;
 
@@ -127,37 +125,28 @@ impl NblastNeuron for NaboTangentsAlphas {
         self.points_tangents_alphas.len()
     }
 
-    fn points(&self) -> Vec<Point3> {
-        self.points_tangents_alphas
-            .iter()
-            .map(|pta| pta.0)
-            .collect()
+    fn points(&self) -> impl Iterator<Item = Point3> + '_ {
+        self.points_tangents_alphas.iter().map(|pta| pta.0)
     }
 
-    fn centroid(&self) -> Point3 {
-        centroid(self.points().iter())
+    fn tangents(&self) -> impl Iterator<Item = Normal3> + '_ {
+        self.points_tangents_alphas.iter().map(|pta| pta.1.tangent)
     }
 
-    fn tangents(&self) -> Vec<Normal3> {
-        self.points_tangents_alphas
-            .iter()
-            .map(|pta| pta.1.tangent)
-            .collect()
-    }
-
-    fn alphas(&self) -> Vec<Precision> {
-        self.points_tangents_alphas
-            .iter()
-            .map(|pta| pta.1.alpha)
-            .collect()
+    fn alphas(&self) -> impl Iterator<Item = Precision> + '_ {
+        self.points_tangents_alphas.iter().map(|pta| pta.1.alpha)
     }
 }
 
 impl QueryNeuron for NaboTangentsAlphas {
-    fn query_dist_dots(&self, target: &impl TargetNeuron, use_alpha: bool) -> Vec<DistDot> {
+    fn query_dist_dots<'a>(
+        &'a self,
+        target: &'a impl TargetNeuron,
+        use_alpha: bool,
+    ) -> impl Iterator<Item = DistDot> + 'a {
         self.points_tangents_alphas
             .iter()
-            .map(|(p, tangent_alpha)| {
+            .map(move |(p, tangent_alpha)| {
                 let alpha = if use_alpha {
                     Some(tangent_alpha.alpha)
                 } else {
@@ -165,7 +154,6 @@ impl QueryNeuron for NaboTangentsAlphas {
                 };
                 target.nearest_match_dist_dot(p, &tangent_alpha.tangent, alpha)
             })
-            .collect()
     }
 
     fn self_hit(&self, score_calc: &ScoreCalc, use_alpha: bool) -> Precision {

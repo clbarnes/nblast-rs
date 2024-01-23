@@ -1,8 +1,6 @@
 //! Neuron types using the [kiddo](https://crates.io/crates/kiddo) crate as a backend.
 use super::{NblastNeuron, QueryNeuron, TargetNeuron};
-use crate::{
-    centroid, geometric_mean, DistDot, Normal3, Point3, Precision, ScoreCalc, TangentAlpha,
-};
+use crate::{geometric_mean, DistDot, Normal3, Point3, Precision, ScoreCalc, TangentAlpha};
 use kiddo::{ImmutableKdTree, SquaredEuclidean};
 
 type KdTree = ImmutableKdTree<Precision, 3>;
@@ -12,6 +10,7 @@ type KdTree = ImmutableKdTree<Precision, 3>;
 /// By default, this uses approximate nearest neighbour for one-off lookups (as used in NBLAST scoring).
 /// However, in tests it is *very* approximate.
 /// See the [ExactKiddoTangentsAlphas] for exact 1NN.
+#[derive(Clone, Debug)]
 pub struct KiddoTangentsAlphas {
     tree: KdTree,
     points_tangents_alphas: Vec<(Point3, TangentAlpha)>,
@@ -88,37 +87,28 @@ impl NblastNeuron for KiddoTangentsAlphas {
         self.points_tangents_alphas.len()
     }
 
-    fn points(&self) -> Vec<Point3> {
-        self.points_tangents_alphas
-            .iter()
-            .map(|pta| pta.0)
-            .collect()
+    fn points(&self) -> impl Iterator<Item = Point3> + '_ {
+        self.points_tangents_alphas.iter().map(|pta| pta.0)
     }
 
-    fn centroid(&self) -> Point3 {
-        centroid(self.points().iter())
+    fn tangents(&self) -> impl Iterator<Item = Normal3> + '_ {
+        self.points_tangents_alphas.iter().map(|pta| pta.1.tangent)
     }
 
-    fn tangents(&self) -> Vec<Normal3> {
-        self.points_tangents_alphas
-            .iter()
-            .map(|pta| pta.1.tangent)
-            .collect()
-    }
-
-    fn alphas(&self) -> Vec<Precision> {
-        self.points_tangents_alphas
-            .iter()
-            .map(|pta| pta.1.alpha)
-            .collect()
+    fn alphas(&self) -> impl Iterator<Item = Precision> + '_ {
+        self.points_tangents_alphas.iter().map(|pta| pta.1.alpha)
     }
 }
 
 impl QueryNeuron for KiddoTangentsAlphas {
-    fn query_dist_dots(&self, target: &impl TargetNeuron, use_alpha: bool) -> Vec<DistDot> {
+    fn query_dist_dots<'a>(
+        &'a self,
+        target: &'a impl TargetNeuron,
+        use_alpha: bool,
+    ) -> impl Iterator<Item = DistDot> + 'a {
         self.points_tangents_alphas
             .iter()
-            .map(|(p, tangent_alpha)| {
+            .map(move |(p, tangent_alpha)| {
                 let alpha = if use_alpha {
                     Some(tangent_alpha.alpha)
                 } else {
@@ -126,7 +116,6 @@ impl QueryNeuron for KiddoTangentsAlphas {
                 };
                 target.nearest_match_dist_dot(p, &tangent_alpha.tangent, alpha)
             })
-            .collect()
     }
 
     fn self_hit(&self, score_calc: &ScoreCalc, use_alpha: bool) -> Precision {
@@ -160,6 +149,7 @@ impl TargetNeuron for KiddoTangentsAlphas {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct ExactKiddoTangentsAlphas(KiddoTangentsAlphas);
 
 impl ExactKiddoTangentsAlphas {
@@ -183,21 +173,25 @@ impl NblastNeuron for ExactKiddoTangentsAlphas {
         self.0.len()
     }
 
-    fn points(&self) -> Vec<Point3> {
+    fn points(&self) -> impl Iterator<Item = Point3> + '_ {
         self.0.points()
     }
 
-    fn tangents(&self) -> Vec<Normal3> {
+    fn tangents(&self) -> impl Iterator<Item = Normal3> + '_ {
         self.0.tangents()
     }
 
-    fn alphas(&self) -> Vec<Precision> {
+    fn alphas(&self) -> impl Iterator<Item = Precision> + '_ {
         self.0.alphas()
     }
 }
 
 impl QueryNeuron for ExactKiddoTangentsAlphas {
-    fn query_dist_dots(&self, target: &impl TargetNeuron, use_alpha: bool) -> Vec<DistDot> {
+    fn query_dist_dots<'a>(
+        &'a self,
+        target: &'a impl TargetNeuron,
+        use_alpha: bool,
+    ) -> impl Iterator<Item = DistDot> + '_ {
         self.0.query_dist_dots(target, use_alpha)
     }
 

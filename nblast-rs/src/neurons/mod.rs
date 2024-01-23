@@ -1,6 +1,8 @@
 //! Neurites which can be queried against each other.
 use crate::{centroid, DistDot, Normal3, Point3, Precision, ScoreCalc};
 
+#[cfg(feature = "bosque")]
+pub mod bosque;
 #[cfg(feature = "kiddo")]
 pub mod kiddo;
 #[cfg(feature = "nabo")]
@@ -11,6 +13,8 @@ pub mod rstar;
 cfg_if::cfg_if! {
     if #[cfg(feature = "kiddo")] {
         pub type Neuron = self::kiddo::ExactKiddoTangentsAlphas;
+    } else if #[cfg(feature = "bosque")] {
+        pub type Neuron = self::bosque::BosqueTangentsAlphas;
     } else if #[cfg(feature = "rstar")] {
         pub type Neuron = self::rstar::RStarTangentsAlphas;
     } else if #[cfg(feature = "nabo")] {
@@ -33,21 +37,21 @@ pub trait NblastNeuron {
     /// Return an owned copy of the points present in the neuron.
     /// The order is not guaranteed, but is consistent with
     /// [tangents](#method.tangents).
-    fn points(&self) -> Vec<Point3>;
+    fn points(&self) -> impl Iterator<Item = Point3> + '_;
 
     fn centroid(&self) -> Point3 {
-        centroid(&self.points())
+        centroid(self.points())
     }
 
     /// Return an owned copy of the unit tangents present in the neuron.
     /// The order is not guaranteed, but is consistent with
     /// [points](#method.points).
-    fn tangents(&self) -> Vec<Normal3>;
+    fn tangents(&self) -> impl Iterator<Item = Normal3> + '_;
 
     /// Return an owned copy of the alpha values for points in the neuron.
     /// The order is consistent with [points](#method.points)
     /// and [tangents](#method.tangents).
-    fn alphas(&self) -> Vec<Precision>;
+    fn alphas(&self) -> impl Iterator<Item = Precision> + '_;
 }
 
 /// Trait for objects which can be used as queries
@@ -56,7 +60,11 @@ pub trait NblastNeuron {
 pub trait QueryNeuron: NblastNeuron {
     /// Calculate the distance and (alpha-scaled) absolute dot products for point matches
     /// between this and a target neuron.
-    fn query_dist_dots(&self, target: &impl TargetNeuron, use_alpha: bool) -> Vec<DistDot>;
+    fn query_dist_dots<'a>(
+        &'a self,
+        target: &'a impl TargetNeuron,
+        use_alpha: bool,
+    ) -> impl Iterator<Item = DistDot> + 'a;
 
     /// Calculate the raw NBLAST score by comparing this neuron to
     /// the given target neuron, using the given score function.
@@ -68,8 +76,7 @@ pub trait QueryNeuron: NblastNeuron {
         score_calc: &ScoreCalc,
     ) -> Precision {
         self.query_dist_dots(target, use_alpha)
-            .iter()
-            .map(|dd| score_calc.calc(dd))
+            .map(|dd| score_calc.calc(&dd))
             .sum()
     }
 

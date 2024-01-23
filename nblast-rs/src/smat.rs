@@ -333,8 +333,13 @@ pub fn all_distdots_par<T: TargetNeuron + Sync>(
     jobs: &[(usize, usize)],
     use_alpha: bool,
 ) -> Vec<DistDot> {
+    // todo: prevent the intermediate collects
     jobs.par_iter()
-        .map(|(q, t)| neurons[*q].query_dist_dots(&neurons[*t], use_alpha))
+        .map(|(q, t)| {
+            neurons[*q]
+                .query_dist_dots(&neurons[*t], use_alpha)
+                .collect::<Vec<_>>()
+        })
         .flatten()
         .collect()
 }

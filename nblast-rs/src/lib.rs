@@ -77,10 +77,9 @@
 //!
 //! // See the ScoreMatrixBuilder for constructing a score matrix from test data.
 //!
-//! // Create an arena to hold your neurons with this score function,
-//! // whether it should scale the dot products by the colinearity value,
-//! // and how many threads to use (default serial)
-//! let mut arena = NblastArena::new(smat, false).with_threads(2);
+//! // Create an arena to hold your neurons with this score function, and
+//! // whether it should scale the dot products by the colinearity value.
+//! let mut arena = NblastArena::new(smat, false);
 //!
 //! let mut rng = fastrand::Rng::with_seed(1991);
 //!
@@ -92,7 +91,6 @@
 //!     ]).take(n).collect()
 //! }
 //!
-
 //! // Add some neurons built from points and a neighborhood size,
 //! // returning their indices in the arena
 //! let idx1 = arena.add_neuron(
@@ -129,8 +127,13 @@ pub use table_lookup::{BinLookup, NdBinLookup, RangeTable};
 pub mod neurons;
 pub use neurons::{NblastNeuron, Neuron, QueryNeuron, TargetNeuron};
 
-#[cfg(not(any(feature = "nabo", feature = "rstar", feature = "kiddo")))]
-compile_error!("one of 'nabo', 'rstar', or 'kiddo' features must be enabled");
+#[cfg(not(any(
+    feature = "nabo",
+    feature = "rstar",
+    feature = "kiddo",
+    feature = "bosque"
+)))]
+compile_error!("no spatial backend feature enabled");
 
 /// Floating point precision type used internally
 pub type Precision = f64;
@@ -139,7 +142,7 @@ pub type Point3 = [Precision; 3];
 /// 3D unit-length vector type used internally
 pub type Normal3 = Unit<Vector3<Precision>>;
 
-fn centroid<'a, T: IntoIterator<Item = &'a Point3>>(points: T) -> Point3 {
+fn centroid<T: IntoIterator<Item = Point3>>(points: T) -> Point3 {
     let mut len: f64 = 0.0;
     let mut out = [0.0; 3];
     for p in points {
@@ -167,7 +170,7 @@ fn harmonic_mean(a: Precision, b: Precision) -> Precision {
 }
 
 /// A tangent, alpha pair associated with a point.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct TangentAlpha {
     pub tangent: Normal3,
     pub alpha: Precision,
@@ -230,7 +233,7 @@ impl Symmetry {
 /// and the absolute dot product of the (unit) tangents,
 /// i.e. the absolute cosine of the angle between them
 /// (possibly scaled by the geometric mean of the alphas).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DistDot {
     pub dist: Precision,
     pub dot: Precision,
@@ -344,33 +347,36 @@ impl NblastNeuron for PointsTangentsAlphas {
         self.points.len()
     }
 
-    fn points(&self) -> Vec<Point3> {
-        self.points.clone()
+    fn points(&self) -> impl Iterator<Item = Point3> + '_ {
+        self.points.iter().cloned()
     }
 
     fn centroid(&self) -> Point3 {
-        centroid(self.points.iter())
+        centroid(self.points())
     }
 
-    fn tangents(&self) -> Vec<Normal3> {
-        self.tangents_alphas.iter().map(|ta| ta.tangent).collect()
+    fn tangents(&self) -> impl Iterator<Item = Normal3> + '_ {
+        self.tangents_alphas.iter().map(|ta| ta.tangent)
     }
 
-    fn alphas(&self) -> Vec<Precision> {
-        self.tangents_alphas.iter().map(|ta| ta.alpha).collect()
+    fn alphas(&self) -> impl Iterator<Item = Precision> + '_ {
+        self.tangents_alphas.iter().map(|ta| ta.alpha)
     }
 }
 
 impl QueryNeuron for PointsTangentsAlphas {
-    fn query_dist_dots(&self, target: &impl TargetNeuron, use_alpha: bool) -> Vec<DistDot> {
+    fn query_dist_dots<'a>(
+        &'a self,
+        target: &'a impl TargetNeuron,
+        use_alpha: bool,
+    ) -> impl Iterator<Item = DistDot> + 'a {
         self.points
             .iter()
             .zip(self.tangents_alphas.iter())
-            .map(|(q_pt, q_ta)| {
+            .map(move |(q_pt, q_ta)| {
                 let alpha = if use_alpha { Some(q_ta.alpha) } else { None };
                 target.nearest_match_dist_dot(q_pt, &q_ta.tangent, alpha)
             })
-            .collect()
     }
 
     fn query(
@@ -574,6 +580,10 @@ where
             use_alpha: self.use_alpha,
             threads: Some(threads),
         }
+    }
+
+    pub fn size_of(&self, idx: NeuronIdx) -> Option<usize> {
+        self.neurons_scores.get(idx).map(|n| n.neuron.len())
     }
 
     fn next_id(&self) -> NeuronIdx {
@@ -786,15 +796,15 @@ where
         self.neurons_scores.len()
     }
 
-    pub fn points(&self, idx: NeuronIdx) -> Option<Vec<Point3>> {
+    pub fn points(&self, idx: NeuronIdx) -> Option<impl Iterator<Item = Point3> + '_> {
         self.neurons_scores.get(idx).map(|n| n.neuron.points())
     }
 
-    pub fn tangents(&self, idx: NeuronIdx) -> Option<Vec<Normal3>> {
+    pub fn tangents(&self, idx: NeuronIdx) -> Option<impl Iterator<Item = Normal3> + '_> {
         self.neurons_scores.get(idx).map(|n| n.neuron.tangents())
     }
 
-    pub fn alphas(&self, idx: NeuronIdx) -> Option<Vec<Precision>> {
+    pub fn alphas(&self, idx: NeuronIdx) -> Option<impl Iterator<Item = Precision> + '_> {
         self.neurons_scores.get(idx).map(|n| n.neuron.alphas())
     }
 }
@@ -882,7 +892,7 @@ mod test {
     #[test]
     fn construct() {
         let points = make_points(&[0., 0., 0.], &[1., 0., 0.], 10);
-        Neuron::new(points, N_NEIGHBORS);
+        Neuron::new(points, N_NEIGHBORS).unwrap();
     }
 
     fn is_close(val1: Precision, val2: Precision) -> bool {
@@ -967,7 +977,10 @@ mod test {
     fn test_neuron() {
         let (points, exp_tan, _exp_alpha) = tangent_data();
         let tgt = Neuron::new(points, N_NEIGHBORS).unwrap();
-        assert!(equivalent_tangents(&tgt.tangents()[0], &exp_tan));
+        assert!(equivalent_tangents(
+            &tgt.tangents().next().unwrap(),
+            &exp_tan
+        ));
         // tested from the python side
         // assert_close(tgt.alphas()[0], exp_alpha);
     }
