@@ -80,6 +80,7 @@
 //! // Create an arena to hold your neurons with this score function, and
 //! // whether it should scale the dot products by the colinearity value.
 //! let mut arena = NblastArena::new(smat, false);
+//! // if the "parallel" feature is enabled, use e.g. `.with_threads(5)` to set 5 threads for multi-neuron queries
 //!
 //! let mut rng = fastrand::Rng::with_seed(1991);
 //!
