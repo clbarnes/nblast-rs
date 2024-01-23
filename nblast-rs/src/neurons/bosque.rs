@@ -83,7 +83,7 @@ impl QueryNeuron for BosqueTangentsAlphas {
             .zip(self.tangents_alphas.iter())
             .map(move |(p, ta)| {
                 let alpha = if use_alpha { Some(ta.alpha) } else { None };
-                target.nearest_match_dist_dot(&p, &ta.tangent, alpha)
+                target.nearest_match_dist_dot(p, &ta.tangent, alpha)
             })
     }
 
@@ -133,7 +133,7 @@ impl TargetNeuron for BosqueTangentsAlphas {
             Some(a) => raw_dot * geometric_mean(a, ta.alpha),
             None => raw_dot,
         };
-        DistDot { dist: dist, dot }
+        DistDot { dist, dot }
     }
 }
 

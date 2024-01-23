@@ -61,17 +61,29 @@ pub fn bench_queries(c: &mut Criterion) {
 
     let ar = make_arena::<BosqueArena>(points.clone());
     group.bench_function("bosque", |b| {
-        b.iter(|| black_box(pair_queries(&ar, &pairs)))
+        b.iter(|| {
+            pair_queries(&ar, &pairs);
+            black_box(())
+        })
     });
 
     let ar = make_arena::<KiddoArena>(points.clone());
-    group.bench_function("kiddo", |b| b.iter(|| black_box(pair_queries(&ar, &pairs))));
+    group.bench_function("kiddo", |b| b.iter(|| {
+        pair_queries(&ar, &pairs);
+        black_box(())
+    }));
 
     let ar = make_arena::<NaboArena>(points.clone());
-    group.bench_function("nabo", |b| b.iter(|| black_box(pair_queries(&ar, &pairs))));
+    group.bench_function("nabo", |b| b.iter(|| {
+        pair_queries(&ar, &pairs);
+        black_box(())
+    }));
 
     let ar = make_arena::<RstarArena>(points.clone());
-    group.bench_function("rstar", |b| b.iter(|| black_box(pair_queries(&ar, &pairs))));
+    group.bench_function("rstar", |b| b.iter(|| {
+        pair_queries(&ar, &pairs);
+        black_box(())
+    }));
 }
 
 criterion_group!(benches, bench_construction, bench_queries);

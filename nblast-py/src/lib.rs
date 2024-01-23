@@ -71,7 +71,7 @@ impl ArenaWrapper {
                 .collect(),
             self.k,
         )
-        .map_err(|e| PyErr::new::<PyValueError, _>(e))?;
+        .map_err(PyErr::new::<PyValueError, _>)?;
         Ok(self.arena.add_neuron(neuron))
     }
 
@@ -114,7 +114,7 @@ impl ArenaWrapper {
                 .collect(),
             tangents_alphas,
         )
-        .map_err(|e| PyErr::new::<PyValueError, _>(e))?;
+        .map_err(PyErr::new::<PyValueError, _>)?;
         Ok(self.arena.add_neuron(neuron))
     }
 

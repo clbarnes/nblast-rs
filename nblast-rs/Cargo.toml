@@ -47,7 +47,7 @@ parallel = ["rayon"]
 
 name = "bench"
 harness = false
-required-features = ["parallel"]
+required-features = ["parallel", "bosque", "kiddo", "nabo", "rstar"]
 
 [package.metadata.release]
 publish = false

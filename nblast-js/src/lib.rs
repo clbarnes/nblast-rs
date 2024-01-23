@@ -170,9 +170,8 @@ pub fn make_flat_tangents_alphas(flat_points: &[f64], k: usize) -> JsResult<Floa
     let out = Float64Array::new_with_length(neuron.len() as u32);
     for (idx, val) in neuron
         .tangents()
-        .into_iter()
         .flat_map(|n| [n[0], n[1], n[2]])
-        .chain(neuron.alphas().into_iter())
+        .chain(neuron.alphas())
         .enumerate()
     {
         out.set_index(idx as u32, val);
