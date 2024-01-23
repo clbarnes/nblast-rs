@@ -16,7 +16,7 @@ pub mod rstar;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "kiddo")] {
-        pub type Neuron = self::kiddo::ExactKiddoNeuron;
+        pub type Neuron = self::kiddo::KiddoNeuron;
     } else if #[cfg(feature = "bosque")] {
         pub type Neuron = self::bosque::BosqueNeuron;
     } else if #[cfg(feature = "rstar")] {

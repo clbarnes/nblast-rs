@@ -9,7 +9,7 @@ use fastrand::Rng;
 #[cfg(feature = "bosque")]
 use nblast::neurons::bosque::BosqueNeuron;
 #[cfg(feature = "kiddo")]
-use nblast::neurons::kiddo::{ExactKiddoNeuron, KiddoNeuron};
+use nblast::neurons::kiddo::{ApproxKiddoNeuron, KiddoNeuron};
 #[cfg(feature = "nabo")]
 use nblast::neurons::nabo::NaboNeuron;
 use nblast::neurons::rstar::RstarNeuron;
@@ -266,14 +266,14 @@ fn bench_construction_nabo(b: &mut Bencher) {
     b.iter(|| NaboNeuron::new(points.clone(), N_NEIGHBORS))
 }
 
+fn bench_construction_approx_kiddo(b: &mut Bencher) {
+    let points = read_points(NAMES[0]);
+    b.iter(|| ApproxKiddoNeuron::new(points.clone(), N_NEIGHBORS))
+}
+
 fn bench_construction_kiddo(b: &mut Bencher) {
     let points = read_points(NAMES[0]);
     b.iter(|| KiddoNeuron::new(points.clone(), N_NEIGHBORS))
-}
-
-fn bench_construction_exact_kiddo(b: &mut Bencher) {
-    let points = read_points(NAMES[0]);
-    b.iter(|| ExactKiddoNeuron::new(points.clone(), N_NEIGHBORS))
 }
 
 fn bench_construction_bosque(b: &mut Bencher) {
@@ -289,18 +289,18 @@ fn bench_query_nabo(b: &mut Bencher) {
     b.iter(|| query.query(&target, false, &score_fn))
 }
 
-fn bench_query_kiddo(b: &mut Bencher) {
+fn bench_query_approx_kiddo(b: &mut Bencher) {
     let score_fn = get_score_fn();
-    let query = KiddoNeuron::new(read_points(NAMES[0]), N_NEIGHBORS).unwrap();
-    let target = KiddoNeuron::new(read_points(NAMES[1]), N_NEIGHBORS).unwrap();
+    let query = ApproxKiddoNeuron::new(read_points(NAMES[0]), N_NEIGHBORS).unwrap();
+    let target = ApproxKiddoNeuron::new(read_points(NAMES[1]), N_NEIGHBORS).unwrap();
 
     b.iter(|| query.query(&target, false, &score_fn))
 }
 
-fn bench_query_exact_kiddo(b: &mut Bencher) {
+fn bench_query_kiddo(b: &mut Bencher) {
     let score_fn = get_score_fn();
-    let query = ExactKiddoNeuron::new(read_points(NAMES[0]), N_NEIGHBORS).unwrap();
-    let target = ExactKiddoNeuron::new(read_points(NAMES[1]), N_NEIGHBORS).unwrap();
+    let query = KiddoNeuron::new(read_points(NAMES[0]), N_NEIGHBORS).unwrap();
+    let target = KiddoNeuron::new(read_points(NAMES[1]), N_NEIGHBORS).unwrap();
 
     b.iter(|| query.query(&target, false, &score_fn))
 }
@@ -405,23 +405,23 @@ fn bench_all_to_all_serial_nabo(b: &mut Bencher) {
     b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, None));
 }
 
+fn bench_all_to_all_serial_approx_kiddo(b: &mut Bencher) {
+    let mut arena = NblastArena::new(get_score_fn(), false);
+    let mut idxs = Vec::new();
+    for name in NAMES.iter() {
+        let points = read_points(name);
+        idxs.push(arena.add_neuron(ApproxKiddoNeuron::new(points, N_NEIGHBORS).unwrap()));
+    }
+
+    b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, None));
+}
+
 fn bench_all_to_all_serial_kiddo(b: &mut Bencher) {
     let mut arena = NblastArena::new(get_score_fn(), false);
     let mut idxs = Vec::new();
     for name in NAMES.iter() {
         let points = read_points(name);
         idxs.push(arena.add_neuron(KiddoNeuron::new(points, N_NEIGHBORS).unwrap()));
-    }
-
-    b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, None));
-}
-
-fn bench_all_to_all_serial_exact_kiddo(b: &mut Bencher) {
-    let mut arena = NblastArena::new(get_score_fn(), false);
-    let mut idxs = Vec::new();
-    for name in NAMES.iter() {
-        let points = read_points(name);
-        idxs.push(arena.add_neuron(ExactKiddoNeuron::new(points, N_NEIGHBORS).unwrap()));
     }
 
     b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, None));
@@ -452,11 +452,11 @@ fn bench_all_to_all_parallel(b: &mut Bencher) {
     b.iter(|| arena.queries_targets(&idxs, &idxs, false, &None, None));
 }
 
-fn make_smatb_kiddo() -> ScoreMatrixBuilder<ExactKiddoNeuron> {
+fn make_smatb_kiddo() -> ScoreMatrixBuilder<KiddoNeuron> {
     let (all_points, matches, nonmatches) = match_nonmatch(10);
     let neurons: Vec<_> = all_points
         .into_iter()
-        .map(|ps| ExactKiddoNeuron::new(ps, N_NEIGHBORS).unwrap())
+        .map(|ps| KiddoNeuron::new(ps, N_NEIGHBORS).unwrap())
         .collect();
 
     let mut smatb = ScoreMatrixBuilder::new(neurons.clone(), 1991);
@@ -518,10 +518,10 @@ benchmark_group!(
 
 #[cfg(feature = "kiddo")]
 benchmark_group!(
-    impl_kiddo,
-    bench_construction_kiddo,
-    bench_query_kiddo,
-    bench_all_to_all_serial_kiddo,
+    impl_approx_kiddo,
+    bench_construction_approx_kiddo,
+    bench_query_approx_kiddo,
+    bench_all_to_all_serial_approx_kiddo,
 );
 
 #[cfg(feature = "bosque")]
@@ -534,10 +534,10 @@ benchmark_group!(
 
 #[cfg(feature = "kiddo")]
 benchmark_group!(
-    impl_exact_kiddo,
-    bench_construction_exact_kiddo,
-    bench_query_exact_kiddo,
-    bench_all_to_all_serial_exact_kiddo,
+    impl_kiddo,
+    bench_construction_kiddo,
+    bench_query_kiddo,
+    bench_all_to_all_serial_kiddo,
 );
 
 benchmark_group!(
@@ -558,11 +558,4 @@ benchmark_group!(
     bench_smatbuild_quantiles,
 );
 
-benchmark_main!(
-    impl_rstar,
-    impl_nabo,
-    impl_exact_kiddo,
-    impl_bosque,
-    arena,
-    smat
-);
+benchmark_main!(impl_rstar, impl_nabo, impl_kiddo, impl_bosque, arena, smat);

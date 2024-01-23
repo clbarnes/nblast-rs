@@ -153,15 +153,15 @@ mod tests {
     #[cfg(feature = "kiddo")]
     #[test]
     fn expected_idxs() {
-        use crate::neurons::kiddo::ExactKiddoNeuron;
+        use crate::neurons::kiddo::KiddoNeuron;
 
         let mut rng = Rng::with_seed(1991);
         let pts = random_points(100, &mut rng);
-        let t_kid = ExactKiddoNeuron::new(pts.clone(), 5).unwrap();
+        let t_kid = KiddoNeuron::new(pts.clone(), 5).unwrap();
         let b_kid = BosqueNeuron::new(pts, 5).unwrap();
 
         let pts2 = random_points(5, &mut rng);
-        let query = ExactKiddoNeuron::new(pts2, 5).unwrap();
+        let query = KiddoNeuron::new(pts2, 5).unwrap();
 
         let t_res: Vec<_> = query.query_dist_dots(&t_kid, false).collect();
         let b_res: Vec<_> = query.query_dist_dots(&b_kid, false).collect();

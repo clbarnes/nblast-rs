@@ -9,7 +9,7 @@ type KdTree = ImmutableKdTree<Precision, 3>;
 ///
 /// By default, this uses approximate nearest neighbour for one-off lookups (as used in NBLAST scoring).
 /// However, in tests it is *very* approximate.
-/// See the [ExactKiddoNeuron] for exact 1NN.
+/// See the [KiddoNeuron] for exact 1NN.
 #[derive(Clone, Debug)]
 pub struct KiddoNeuron {
     tree: KdTree,
@@ -145,14 +145,14 @@ impl TargetNeuron for KiddoNeuron {
         tangent: &Normal3,
         alpha: Option<Precision>,
     ) -> DistDot {
-        self.nearest_match_dist_dot_inner(point, tangent, alpha, false)
+        self.nearest_match_dist_dot_inner(point, tangent, alpha, true)
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct ExactKiddoNeuron(KiddoNeuron);
+pub struct ApproxKiddoNeuron(KiddoNeuron);
 
-impl ExactKiddoNeuron {
+impl ApproxKiddoNeuron {
     /// Calculate tangents from constructed R*-tree.
     /// `k` is the number of points to calculate each tangent with.
     pub fn new(points: Vec<Point3>, k: usize) -> Result<Self, &'static str> {
@@ -168,7 +168,7 @@ impl ExactKiddoNeuron {
     }
 }
 
-impl NblastNeuron for ExactKiddoNeuron {
+impl NblastNeuron for ApproxKiddoNeuron {
     fn len(&self) -> usize {
         self.0.len()
     }
@@ -186,7 +186,7 @@ impl NblastNeuron for ExactKiddoNeuron {
     }
 }
 
-impl QueryNeuron for ExactKiddoNeuron {
+impl QueryNeuron for ApproxKiddoNeuron {
     fn query_dist_dots<'a>(
         &'a self,
         target: &'a impl TargetNeuron,
@@ -200,7 +200,7 @@ impl QueryNeuron for ExactKiddoNeuron {
     }
 }
 
-impl TargetNeuron for ExactKiddoNeuron {
+impl TargetNeuron for ApproxKiddoNeuron {
     fn nearest_match_dist_dot(
         &self,
         point: &Point3,
@@ -208,7 +208,7 @@ impl TargetNeuron for ExactKiddoNeuron {
         alpha: Option<Precision>,
     ) -> DistDot {
         self.0
-            .nearest_match_dist_dot_inner(point, tangent, alpha, true)
+            .nearest_match_dist_dot_inner(point, tangent, alpha, false)
     }
 }
 
