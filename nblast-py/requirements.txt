@@ -1,5 +1,5 @@
 # build
-maturin==0.14.15
+maturin==1.4.0
 
 # run
 numpy==1.26.3
