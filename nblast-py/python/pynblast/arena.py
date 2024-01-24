@@ -1,9 +1,13 @@
 from typing import List, Tuple, Dict, Iterator, Optional
+import warnings
+from copy import copy
 
 import numpy as np
 
+from .score_matrix import ScoreMatrix
 from .pynblast import ArenaWrapper
 from .util import Idx, raise_if_none, rectify_tangents, Symmetry
+import pandas as pd
 
 DEFAULT_THREADS = 0
 DEFAULT_K = 20
@@ -12,13 +16,21 @@ DEFAULT_K = 20
 class NblastArena:
     """
     Class for creating and keeping track of many neurons for comparison with NBLAST.
+
+    Create the arena with a score matrix.
+    Then use `arena.add_points()` to add point clouds and return indices used for querying
+    (if you have already calculated tangents and alphas *using the same neighborhood size `k`*,
+    use `arena.add_points_tangents_alphas()`).
+    Use `arena.query_target()`, `arena.queries_targets()`, and
+    `arena.all_v_all()` to perform queries.
+
+    You can retrieve the points, tangents, alpha values, or everything about a neuron
+    with `arena.points()`, `arena.tangents()`, `arena.alphas()`, and `arena.neuron_table()`.
     """
 
     def __init__(
         self,
-        dist_bins: List[float],
-        dot_bins: List[float],
-        score_mat: np.ndarray,
+        score_mat: ScoreMatrix,
         use_alpha: bool = False,
         threads: Optional[int] = DEFAULT_THREADS,
         k=DEFAULT_K,
@@ -27,18 +39,8 @@ class NblastArena:
         The required arguments describe a lookup table which is used to convert
         ``(distance, abs_dot_product)`` tuples into a score for a single
         point match.
-        The ``*_bins`` arguments describe the bounds of the bins:
-        N bounds make for N-1 bins.
-        Queries are clamped to the domain of the lookup.
-        ``score_mat`` is the table of values, in dist-major order.
-
-        For example, if the lookup table was stored as a pandas dataframe,
-        where the distance bins were in the left margin and the absolute dot
-        product bins in the top margin, the object would be instantiated by
-
-        >>> arena = NblastArena(df.index, df.columns, df.to_numpy())
-
-        See the ``ScoreMatrix`` namedtuple for convenience.
+        Queries are clamped to the domain of the lookup
+        (i.e. the first and last values are effectively replaced with -inf and +inf respectively).
 
         ``k`` gives the number of points to use when calculating tangents.
 
@@ -51,11 +53,13 @@ class NblastArena:
         self.threads = threads
         self.k = k
 
-        if score_mat.shape != (len(dist_bins) - 1, len(dot_bins) - 1):
-            raise ValueError("Bin thresholds do not match score matrix")
-        score_vec = score_mat.flatten().tolist()
         self._impl = ArenaWrapper(
-            dist_bins, dot_bins, score_vec, self.k, self.use_alpha, self.threads
+            score_mat.dist_thresholds.tolist(),
+            score_mat.dot_thresholds.tolist(),
+            score_mat._flat_values().tolist(),
+            self.k,
+            self.use_alpha,
+            self.threads,
         )
 
     def add_points(self, points: np.ndarray) -> Idx:
@@ -74,7 +78,7 @@ class NblastArena:
         self,
         points: np.ndarray,
         tangents: np.ndarray,
-        alphas: Optional[np.ndarray],
+        alphas: np.ndarray,
     ) -> Idx:
         """Add an Nx3 point cloud representing a neuron, with pre-calculated tangents.
         Tangents must be unit-length and in the same order as the points.
@@ -95,6 +99,10 @@ class NblastArena:
                     "Alpha values not given, but this NblastArena uses alpha weighting"
                 )
             else:
+                warnings.warn(
+                    "Alpha values should be given, even if they are not used",
+                    PendingDeprecationWarning,
+                )
                 alphas = np.full(len(points), 1.0)
         else:
             alphas = np.asarray(alphas)
@@ -186,7 +194,7 @@ class NblastArena:
 
         Order is arbitrary.
         """
-        return np.array(raise_if_none(self._impl.points(idx), idx))
+        return np.asarray(raise_if_none(self._impl.points(idx), idx))
 
     def tangents(self, idx, rectify=False) -> np.ndarray:
         """Return a copy of the tangents associated with the indexed neuron.
@@ -194,7 +202,7 @@ class NblastArena:
         Order is arbitrary, but consistent with the order returned by the
         ``.points`` method.
         """
-        out = np.array(raise_if_none(self._impl.tangents(idx), idx))
+        out = np.asarray(raise_if_none(self._impl.tangents(idx), idx))
         return rectify_tangents(out, True) if rectify else out
 
     def alphas(self, idx) -> np.ndarray:
@@ -203,4 +211,35 @@ class NblastArena:
         Order is arbitrary, but consistent with the order returned by the
         ``.points`` method.
         """
-        return np.array(raise_if_none(self._impl.alphas(idx), idx))
+        return np.asarray(raise_if_none(self._impl.alphas(idx), idx))
+
+    def neuron_table(self, idx: Idx) -> pd.DataFrame:
+        """Return a neuron's points, tangents, and alphas as a dataframe."""
+        arr = raise_if_none(self._impl.neuron_array(idx), idx)
+        return pd.DataFrame(
+            arr, columns=["x", "y", "z", "tangent_x", "tangent_y", "tangent_z", "alpha"]
+        )
+
+    # def serialize_neuron(
+    #     self, idx: Idx, write_to: Optional[BytesIO], format: Format
+    # ) -> Optional[bytes]:
+    #     b = raise_if_none(self._impl.serialize_neuron(idx, format), idx)
+    #     if write_to is None:
+    #         return b
+    #     else:
+    #         write_to.write(b)
+    #     return None
+
+    # def add_serialized_neuron(self, read_from: BytesIO, format: Format) -> Idx:
+    #     # todo: slower than adding p,t,a. Need better serialization?
+    #     b = read_from.read()
+    #     return self._impl.add_serialized_neuron(b, format)
+
+    def copy(self, deep=True):
+        out = copy(self)
+        if deep:
+            out._impl = out._impl.deepcopy()
+        return out
+
+    def __deepcopy__(self):
+        return self.copy()

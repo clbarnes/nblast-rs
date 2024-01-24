@@ -1,28 +1,13 @@
 from typing import NewType
 import enum
+import sys
 
 import numpy as np
 
-
-class StrEnum(str, enum.Enum):
-    def __new__(cls, *args):
-        for arg in args:
-            if not isinstance(arg, (str, enum.auto)):
-                raise TypeError(
-                    "Values of StrEnums must be strings: {} is a {}".format(
-                        repr(arg), type(arg)
-                    )
-                )
-        return super().__new__(cls, *args)
-
-    def __str__(self):
-        return self.value
-
-    # The first argument to this function is documented to be the name of the
-    # enum member, not `self`:
-    # https://docs.python.org/3.6/library/enum.html#using-automatic-values
-    def _generate_next_value_(name, *_):
-        return name
+if sys.version_info >= (3, 11):
+    from enum import StrEnum
+else:
+    from backports.strenum import StrEnum
 
 
 Idx = NewType("Idx", int)
@@ -46,6 +31,18 @@ class Symmetry(StrEnum):
     HARMONIC_MEAN = "harmonic_mean"
     MIN = "min"
     MAX = "max"
+
+
+class Format(StrEnum):
+    """Enum of serialization formats for neurons.
+
+    JSON is plain text, simple and easily introspectable.
+    CBOR is binary, faster and smaller, but needs different tools to debug.
+    """
+
+    # todo: fix JSON
+    # JSON = "json"
+    CBOR = "cbor"
 
 
 def rectify_tangents(orig: np.ndarray, inplace=False) -> np.ndarray:

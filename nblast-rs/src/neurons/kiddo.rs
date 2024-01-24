@@ -3,14 +3,14 @@ use super::{NblastNeuron, QueryNeuron, TargetNeuron};
 use crate::{geometric_mean, DistDot, Normal3, Point3, Precision, ScoreCalc, TangentAlpha};
 use kiddo::{ImmutableKdTree, SquaredEuclidean};
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 type KdTree = ImmutableKdTree<Precision, 3>;
 
 /// Target neuron using a KDTree from the kiddo crate.
-///
-/// By default, this uses approximate nearest neighbour for one-off lookups (as used in NBLAST scoring).
-/// However, in tests it is *very* approximate.
-/// See the [KiddoNeuron] for exact 1NN.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct KiddoNeuron {
     tree: KdTree,
     points_tangents_alphas: Vec<(Point3, TangentAlpha)>,
@@ -150,6 +150,7 @@ impl TargetNeuron for KiddoNeuron {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ApproxKiddoNeuron(KiddoNeuron);
 
 impl ApproxKiddoNeuron {

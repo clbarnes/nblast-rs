@@ -4,6 +4,9 @@ use crate::{geometric_mean, DistDot, Normal3, Point3, Precision, ScoreCalc, Tang
 use rstar::{primitives::GeomWithData, PointDistance, RTree};
 use std::borrow::Borrow;
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 type PointWithIndex = GeomWithData<Point3, usize>;
 
 fn points_to_rtree(
@@ -40,6 +43,7 @@ pub(crate) fn points_to_rtree_tangents_alphas(
 
 /// Target neuron using an [R*-tree](https://en.wikipedia.org/wiki/R*_tree) for spatial queries.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct RstarNeuron {
     rtree: RTree<PointWithIndex>,
     tangents_alphas: Vec<TangentAlpha>,

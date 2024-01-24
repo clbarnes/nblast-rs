@@ -17,14 +17,31 @@ ArenaNames = tuple[NblastArena, dict[Idx, str]]
 
 
 def test_read_smat(smat_path):
-    dist_bins, dot_bins, arr = ScoreMatrix.read(smat_path)
+    smat = ScoreMatrix.read(smat_path)
+    dist_bins = smat.dist_thresholds
+    dot_bins = smat.dot_thresholds
+    arr = smat.values
     assert arr.shape == (len(dist_bins) - 1, len(dot_bins) - 1)
     df = pd.read_csv(smat_path, index_col=0, header=0)
     assert np.allclose(arr, df.to_numpy())
 
 
-def test_construction(score_mat_tup):
-    NblastArena(*score_mat_tup)
+def test_construction(score_mat):
+    NblastArena(score_mat)
+
+
+def test_shallow_copy(arena: NblastArena):
+    arena2 = arena.copy(False)
+    pts = np.random.random((100, 3))
+    arena.add_points(pts)
+    assert len(arena) == len(arena2)
+
+
+def test_deep_copy(arena: NblastArena):
+    arena2 = arena.copy(True)
+    pts = np.random.random((100, 3))
+    arena.add_points(pts)
+    assert len(arena) != len(arena2)
 
 
 def test_insertion(arena: NblastArena, points):
@@ -189,3 +206,36 @@ def test_prepop_tangents(points, arena):
     assert arena.query_target(idx0, idx1, normalize=True) == pytest.approx(
         1.0, abs=EPSILON
     )
+
+
+def test_neuron_table(points, arena: NblastArena):
+    p = points[0][1].to_numpy()
+    idx1 = arena.add_points(p)
+    df = arena.neuron_table(idx1)
+
+    points = df[list("xyz")].to_numpy()
+    assert np.allclose(points, arena.points(idx1))
+
+    tangents = df[["tangent_" + d for d in "xyz"]].to_numpy()
+    assert np.allclose(tangents, arena.tangents(idx1))
+
+    assert np.allclose(df["alpha"].to_numpy(), arena.alphas(idx1))
+
+
+# @pytest.mark.parametrize(
+#     ["format"],
+#     [
+#         # (Format.JSON,),
+#         (Format.CBOR,)
+#     ],
+# )
+# def test_ser_roundtrip(points, arena: NblastArena, format):
+#     p = points[0][1].to_numpy()
+#     idx1 = arena.add_points(p)
+#     b: bytes = arena.serialize_neuron(idx1, None, format)
+#     idx2 = arena.add_serialized_neuron(BytesIO(b), format)
+
+#     df1 = arena.neuron_table(idx1)
+#     df2 = arena.neuron_table(idx2)
+
+#     assert np.allclose(df1.to_numpy(), df2.to_numpy())

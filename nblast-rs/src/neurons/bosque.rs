@@ -3,8 +3,11 @@ use crate::{
     TangentAlpha, TargetNeuron,
 };
 use bosque::tree::{build_tree, build_tree_with_indices, nearest_k, nearest_one};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct BosqueNeuron {
     points: Vec<Point3>,
     tangents_alphas: Vec<TangentAlpha>,

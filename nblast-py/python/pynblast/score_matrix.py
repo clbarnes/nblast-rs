@@ -2,6 +2,7 @@ from typing import List, NamedTuple
 import csv
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 
 def parse_interval(s) -> tuple[float, float]:
@@ -22,10 +23,35 @@ def intervals_to_bins(intervals: list[tuple[float, float]]):
     return out
 
 
-class ScoreMatrix(NamedTuple):
-    dist_thresholds: List[float]
-    dot_thresholds: List[float]
-    values: np.ndarray
+class ScoreMatrix:
+    """Representation of a lookup table for point match scores.
+
+    N thresholds represent N-1 bins.
+    The values are in dot-major order
+    (i.e. values in the same dist bin are next to each other).
+    """
+
+    def __init__(
+        self,
+        dist_thresholds: ArrayLike,
+        dot_thresholds: ArrayLike,
+        values: ArrayLike,
+    ) -> None:
+        self.dist_thresholds = np.asarray(dist_thresholds, np.float64).flatten()
+        self.dot_thresholds = np.asarray(dot_thresholds, np.float64).flatten()
+        self.values = np.asarray(values, np.float64)
+
+        exp_shape = (len(self.dist_thresholds) - 1, len(dot_thresholds) - 1)
+        if self.values.shape != exp_shape:
+            raise ValueError(
+                "For N dist_thresholds and M dot_thresholds, values must be (N-1)x(M-1)"
+            )
+
+    def _flat_values(self):
+        if self.values.flags["F_CONTIGUOUS"]:
+            return self.values.T.flatten()
+        else:
+            return self.values.flatten()
 
     def to_df(self):
         import pandas as pd

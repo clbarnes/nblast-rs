@@ -116,6 +116,8 @@ use table_lookup::InvalidRangeTable;
 pub use rayon;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 pub use nalgebra;
 
@@ -126,7 +128,7 @@ mod table_lookup;
 pub use table_lookup::{BinLookup, NdBinLookup, RangeTable};
 
 pub mod neurons;
-pub use neurons::{NblastNeuron, Neuron, QueryNeuron, TargetNeuron};
+pub use neurons::{NblastNeuron, Neuron, QueryNeuron, TargetNeuron, DEFAULT_BACKEND};
 
 #[cfg(not(any(
     feature = "nabo",
@@ -172,9 +174,76 @@ fn harmonic_mean(a: Precision, b: Precision) -> Precision {
 
 /// A tangent, alpha pair associated with a point.
 #[derive(Copy, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TangentAlpha {
+    #[cfg_attr(feature = "serde", serde(with = "serde_norm"))]
     pub tangent: Normal3,
     pub alpha: Precision,
+}
+
+#[cfg(feature = "serde")]
+mod serde_norm {
+    use super::*;
+    use serde::{
+        de,
+        de::{SeqAccess, Visitor},
+        Deserializer, Serializer,
+    };
+    use std::fmt;
+
+    pub fn serialize<S>(norm: &Normal3, ser: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        ser.collect_seq(norm.as_slice().iter())
+    }
+
+    struct NormVisitor;
+
+    impl<'de> Visitor<'de> for NormVisitor {
+        type Value = Normal3;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("ArrayKeyedMap key value sequence.")
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let mut elems = [0.0; 3];
+            let mut idx = 0;
+            let mut mag: f64 = 0.0;
+            while let Some(val) = seq.next_element()? {
+                elems[idx] = val;
+                mag += val * val;
+                idx += 1;
+                if idx > elems.len() {
+                    return Err(de::Error::custom("Too many elements"));
+                }
+            }
+            if idx < elems.len() {
+                return Err(de::Error::custom("Not enough elements"));
+            }
+
+            let v = Vector3::from(elems);
+
+            if mag == 0.0 {
+                Err(de::Error::custom("tangent has magnitude 0"))
+            } else if mag == 1.0 {
+                Ok(Unit::new_unchecked(v))
+            } else {
+                Ok(Unit::new_unchecked(v / mag.sqrt()))
+            }
+        }
+    }
+
+    pub fn deserialize<'de, D>(deser: D) -> Result<Normal3, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deser.deserialize_seq(NormVisitor)
+    }
 }
 
 impl TangentAlpha {
@@ -493,7 +562,7 @@ impl Location for &Point3 {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct NeuronSelfHit<N: QueryNeuron> {
     neuron: N,
     self_hit: Precision,
@@ -553,6 +622,7 @@ impl ScoreCalc {
 
 /// Struct for caching a number of neurons for multiple comparable NBLAST queries.
 #[allow(dead_code)]
+#[derive(Debug, Clone)]
 pub struct NblastArena<N>
 where
     N: TargetNeuron,
@@ -592,10 +662,6 @@ where
         }
     }
 
-    pub fn size_of(&self, idx: NeuronIdx) -> Option<usize> {
-        self.neurons_scores.get(idx).map(|n| n.neuron.len())
-    }
-
     fn next_id(&self) -> NeuronIdx {
         self.neurons_scores.len()
     }
@@ -607,6 +673,10 @@ where
         self.neurons_scores
             .push(NeuronSelfHit::new(neuron, self_hit));
         idx
+    }
+
+    pub fn neuron(&self, idx: NeuronIdx) -> Option<&N> {
+        self.neurons_scores.get(idx).map(|ns| &ns.neuron)
     }
 
     /// Make a single query using the given indexes.
@@ -804,18 +874,6 @@ where
     /// Number of neurons in the arena.
     pub fn len(&self) -> usize {
         self.neurons_scores.len()
-    }
-
-    pub fn points(&self, idx: NeuronIdx) -> Option<impl Iterator<Item = Point3> + '_> {
-        self.neurons_scores.get(idx).map(|n| n.neuron.points())
-    }
-
-    pub fn tangents(&self, idx: NeuronIdx) -> Option<impl Iterator<Item = Normal3> + '_> {
-        self.neurons_scores.get(idx).map(|n| n.neuron.tangents())
-    }
-
-    pub fn alphas(&self, idx: NeuronIdx) -> Option<impl Iterator<Item = Precision> + '_> {
-        self.neurons_scores.get(idx).map(|n| n.neuron.alphas())
     }
 }
 

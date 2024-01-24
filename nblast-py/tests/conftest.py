@@ -1,6 +1,7 @@
 from typing import Callable, Tuple, List, Dict, Optional
 from pathlib import Path
 import json
+from pynblast.smat_builder import ScoreMatrixBuilder
 
 import pytest
 import pandas as pd
@@ -16,7 +17,7 @@ def smat_path() -> Path:
 
 
 @pytest.fixture
-def score_mat_tup(smat_path) -> pynblast.ScoreMatrix:
+def score_mat(smat_path) -> pynblast.ScoreMatrix:
     return pynblast.ScoreMatrix.read(smat_path)
 
 
@@ -33,17 +34,17 @@ def points() -> List[Tuple[str, pd.DataFrame]]:
 
 
 @pytest.fixture
-def arena(score_mat_tup):
-    return pynblast.NblastArena(*score_mat_tup, k=5)
+def arena(score_mat):
+    return pynblast.NblastArena(score_mat, k=5)
 
 
 @pytest.fixture
 def arena_names_factory(
-    score_mat_tup, points
+    score_mat, points
 ) -> Callable[[bool, Optional[int]], Tuple[pynblast.NblastArena, dict[int, str]]]:
     def fn(use_alpha, threads):
         arena = pynblast.NblastArena(
-            *score_mat_tup, k=5, use_alpha=use_alpha, threads=threads
+            score_mat, k=5, use_alpha=use_alpha, threads=threads
         )
 
         idx_to_name = dict()
@@ -93,3 +94,20 @@ def skeleton() -> List[Tuple[int, Optional[int], float, float, float]]:
 @pytest.fixture
 def resampler(skeleton) -> pynblast.ResamplingArbor:
     return pynblast.ResamplingArbor(skeleton)
+
+
+@pytest.fixture
+def smatbuilder(points):
+    matching_sets = {"Fru": set(), "Gad": set()}
+    builder = ScoreMatrixBuilder(1991)
+    for name, pts in points:
+        idx = builder.add_points(pts.to_numpy())
+        for k, v in matching_sets.items():
+            if name.startswith(k):
+                v.add(idx)
+
+    for ms in matching_sets.values():
+        builder.add_matching_set(ms)
+
+    builder.set_dist_bins(6).set_dot_bins(4)
+    return builder

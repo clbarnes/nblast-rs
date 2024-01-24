@@ -14,15 +14,22 @@ pub mod nabo;
 #[cfg(feature = "rstar")]
 pub mod rstar;
 
+#[cfg(feature = "serde")]
+pub mod any;
+
 cfg_if::cfg_if! {
     if #[cfg(feature = "kiddo")] {
         pub type Neuron = self::kiddo::KiddoNeuron;
+        pub const DEFAULT_BACKEND: &'static str = "kiddo";
     } else if #[cfg(feature = "bosque")] {
         pub type Neuron = self::bosque::BosqueNeuron;
+        pub const DEFAULT_BACKEND: &'static str = "bosque";
     } else if #[cfg(feature = "rstar")] {
         pub type Neuron = self::rstar::RstarNeuron;
+        pub const DEFAULT_BACKEND: &'static str = "rstar";
     } else if #[cfg(feature = "nabo")] {
         pub type Neuron = self::nabo::NaboNeuron;
+        pub const DEFAULT_BACKEND: &'static str = "nabo";
     } else {
         compile_error!("No spatial query backend selected");
     }
