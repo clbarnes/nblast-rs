@@ -1,5 +1,4 @@
 from typing import NewType
-import enum
 import sys
 
 import numpy as np

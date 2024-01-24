@@ -259,13 +259,13 @@ impl ArenaWrapper {
     /// and neighborhood size.
     /// Unlike adding a neuron by its points or points/tangents/alphas,
     /// this saves having to rebuild the spatial index.
-    pub fn add_serialized_neuron<'py>(
+    pub fn add_serialized_neuron(
         &mut self,
-        _py: Python<'py>,
+        _py: Python<'_>,
         bytes: &[u8],
         format: &str,
     ) -> PyResult<NeuronIdx> {
-        let fmt = NeuronFormat::from_str(format).map_err(|msg| PyValueError::new_err(msg))?;
+        let fmt = NeuronFormat::from_str(format).map_err(PyValueError::new_err)?;
         let n = fmt.read_neuron(bytes)?;
         Ok(self.arena.add_neuron(n))
     }
@@ -280,7 +280,7 @@ impl ArenaWrapper {
         idx: NeuronIdx,
         format: &str,
     ) -> PyResult<Option<&'py PyBytes>> {
-        let fmt = NeuronFormat::from_str(format).map_err(|msg| PyValueError::new_err(msg))?;
+        let fmt = NeuronFormat::from_str(format).map_err(PyValueError::new_err)?;
         let Some(nrn) = self.arena.neuron(idx) else {
             return Ok(None);
         };
@@ -289,7 +289,7 @@ impl ArenaWrapper {
         Ok(Some(PyBytes::new(py, buf.into_inner().as_slice())))
     }
 
-    pub fn deepcopy<'py>(&self, _py: Python<'py>) -> Self {
+    pub fn deepcopy(&self, _py: Python<'_>) -> Self {
         self.clone()
     }
 }

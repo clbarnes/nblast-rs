@@ -8,7 +8,8 @@ The main entry point for this package is the `NblastArena` class.
 __author__ = """Chris L. Barnes"""
 __email__ = "chrislloydbarnes@gmail.com"
 
-from .pynblast import get_version as _get_version, ResamplingArbor, backend as _backend
+from .pynblast import get_version as _get_version, ResamplingArbor
+from .pynblast import backend as _backend  # noqa: F401
 
 __version__ = _get_version()
 __version_info__ = tuple(int(n) for n in __version__.split(".")[:3])
