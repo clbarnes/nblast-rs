@@ -13,7 +13,7 @@ type KdTree = ImmutableKdTree<Precision, 3>;
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct KiddoNeuron {
     tree: KdTree,
-    points_tangents_alphas: Vec<(Point3, TangentAlpha)>,
+    tangents_alphas: Vec<TangentAlpha>,
 }
 
 impl KiddoNeuron {
@@ -24,19 +24,19 @@ impl KiddoNeuron {
         if points.len() < k {
             return Err("Not enough points to calculate neighborhood");
         }
-        let points_tangents_alphas = points
+        let tangents_alphas = points
             .iter()
             .map(|p| {
                 let neighbors = tree.nearest_n::<SquaredEuclidean>(p, k);
 
                 let pts = neighbors.iter().map(|nn| &points[nn.item as usize]);
-                (*p, TangentAlpha::new_from_points(pts))
+                TangentAlpha::new_from_points(pts)
             })
             .collect();
 
         Ok(Self {
             tree,
-            points_tangents_alphas,
+            tangents_alphas,
         })
     }
 
@@ -49,9 +49,10 @@ impl KiddoNeuron {
             return Err("Mismatch in points and tangents_alphas length");
         }
         let tree: KdTree = points.as_slice().into();
+
         Ok(Self {
             tree,
-            points_tangents_alphas: points.into_iter().zip(tangents_alphas).collect(),
+            tangents_alphas,
         })
     }
 
@@ -68,7 +69,7 @@ impl KiddoNeuron {
             self.tree.approx_nearest_one::<SquaredEuclidean>(point)
         };
 
-        let (_, ta) = self.points_tangents_alphas[nn.item as usize];
+        let ta = self.tangents_alphas[nn.item as usize];
 
         let raw_dot = ta.tangent.dot(tangent).abs();
         let dot = match alpha {
@@ -84,19 +85,23 @@ impl KiddoNeuron {
 
 impl NblastNeuron for KiddoNeuron {
     fn len(&self) -> usize {
-        self.points_tangents_alphas.len()
+        self.tangents_alphas.len()
     }
 
     fn points(&self) -> impl Iterator<Item = Point3> + '_ {
-        self.points_tangents_alphas.iter().map(|pta| pta.0)
+        self.tree.iter().map(|(_, p)| p)
     }
 
     fn tangents(&self) -> impl Iterator<Item = Normal3> + '_ {
-        self.points_tangents_alphas.iter().map(|pta| pta.1.tangent)
+        self.tree
+            .iter()
+            .map(|(idx, _)| self.tangents_alphas[idx as usize].tangent)
     }
 
     fn alphas(&self) -> impl Iterator<Item = Precision> + '_ {
-        self.points_tangents_alphas.iter().map(|pta| pta.1.alpha)
+        self.tree
+            .iter()
+            .map(|(idx, _)| self.tangents_alphas[idx as usize].alpha)
     }
 }
 
@@ -106,23 +111,22 @@ impl QueryNeuron for KiddoNeuron {
         target: &'a impl TargetNeuron,
         use_alpha: bool,
     ) -> impl Iterator<Item = DistDot> + 'a {
-        self.points_tangents_alphas
-            .iter()
-            .map(move |(p, tangent_alpha)| {
-                let alpha = if use_alpha {
-                    Some(tangent_alpha.alpha)
-                } else {
-                    None
-                };
-                target.nearest_match_dist_dot(p, &tangent_alpha.tangent, alpha)
-            })
+        self.tree.iter().map(move |(idx, p)| {
+            let tangent_alpha = self.tangents_alphas[idx as usize];
+            let alpha = if use_alpha {
+                Some(tangent_alpha.alpha)
+            } else {
+                None
+            };
+            target.nearest_match_dist_dot(&p, &tangent_alpha.tangent, alpha)
+        })
     }
 
     fn self_hit(&self, score_calc: &ScoreCalc, use_alpha: bool) -> Precision {
         if use_alpha {
-            self.points_tangents_alphas
+            self.tangents_alphas
                 .iter()
-                .map(|(_, ta)| {
+                .map(|ta| {
                     score_calc.calc(&DistDot {
                         dist: 0.0,
                         dot: ta.alpha,
