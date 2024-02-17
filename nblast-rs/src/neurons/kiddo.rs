@@ -12,7 +12,12 @@ type KdTree = ImmutableKdTree<Precision, 3>;
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct KiddoNeuron {
+    // Iterating through these points is in arbitrary (but consistent) order
     tree: KdTree,
+    // These are in the order of the original point cloud:
+    // NOT the order of the points in the tree.
+    // This is because queries return the original point index,
+    // and we need to use that index to look up the tangent/alpha.
     tangents_alphas: Vec<TangentAlpha>,
 }
 
@@ -24,6 +29,9 @@ impl KiddoNeuron {
         if points.len() < k {
             return Err("Not enough points to calculate neighborhood");
         }
+
+        // must iterate through points in original order,
+        // not the order they come out of the tree.
         let tangents_alphas = points
             .iter()
             .map(|p| {
