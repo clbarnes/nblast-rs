@@ -40,7 +40,7 @@ class ScoreMatrix:
         self.dot_thresholds = np.asarray(dot_thresholds, np.float64).flatten()
         self.values = np.asarray(values, np.float64)
 
-        exp_shape = (len(self.dist_thresholds) - 1, len(dot_thresholds) - 1)
+        exp_shape = (len(self.dist_thresholds) - 1, len(self.dot_thresholds) - 1)
         if self.values.shape != exp_shape:
             raise ValueError(
                 "For N dist_thresholds and M dot_thresholds, values must be (N-1)x(M-1)"
