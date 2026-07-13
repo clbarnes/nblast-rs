@@ -21,7 +21,7 @@ fn points_to_rtree(
 }
 
 pub(crate) fn points_to_rtree_tangents_alphas(
-    points: impl Iterator<Item = impl std::borrow::Borrow<Point3>> + ExactSizeIterator + Clone,
+    points: impl ExactSizeIterator<Item = impl std::borrow::Borrow<Point3>> + Clone,
     k: usize,
 ) -> Result<(RTree<PointWithIndex>, Vec<TangentAlpha>), &'static str> {
     if points.len() < k {
@@ -53,10 +53,7 @@ impl RstarNeuron {
     /// Calculate tangents from constructed R*-tree.
     /// `k` is the number of points to calculate each tangent with.
     pub fn new<T: std::borrow::Borrow<Point3>>(
-        points: impl IntoIterator<
-            Item = T,
-            IntoIter = impl Iterator<Item = T> + ExactSizeIterator + Clone,
-        >,
+        points: impl IntoIterator<Item = T, IntoIter = impl ExactSizeIterator<Item = T> + Clone>,
         k: usize,
     ) -> Result<Self, &'static str> {
         points_to_rtree_tangents_alphas(points.into_iter(), k).map(|(rtree, tangents_alphas)| {
@@ -69,10 +66,7 @@ impl RstarNeuron {
 
     /// Use pre-calculated tangents.
     pub fn new_with_tangents_alphas<T: std::borrow::Borrow<Point3>>(
-        points: impl IntoIterator<
-            Item = T,
-            IntoIter = impl Iterator<Item = T> + ExactSizeIterator + Clone,
-        >,
+        points: impl IntoIterator<Item = T, IntoIter = impl ExactSizeIterator<Item = T> + Clone>,
         tangents_alphas: Vec<TangentAlpha>,
     ) -> Result<Self, &'static str> {
         let rtree = points_to_rtree(points.into_iter())?;

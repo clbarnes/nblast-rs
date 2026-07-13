@@ -250,8 +250,8 @@ fn get_score_fn() -> ScoreCalc {
 
 fn bench_query_rstar(b: &mut Bencher) {
     let score_fn = get_score_fn();
-    let query = RstarNeuron::new(&read_points(NAMES[0]), N_NEIGHBORS).expect("couldn't parse");
-    let target = RstarNeuron::new(&read_points(NAMES[1]), N_NEIGHBORS).expect("couldn't parse");
+    let query = RstarNeuron::new(read_points(NAMES[0]), N_NEIGHBORS).expect("couldn't parse");
+    let target = RstarNeuron::new(read_points(NAMES[1]), N_NEIGHBORS).expect("couldn't parse");
 
     b.iter(|| query.query(&target, false, &score_fn))
 }
@@ -331,7 +331,7 @@ fn bench_arena_construction(b: &mut Bencher) {
     let score_fn = get_score_fn();
     let pointtangents: Vec<_> = NAMES
         .iter()
-        .map(|n| RstarNeuron::new(&read_points(n), N_NEIGHBORS).expect("couldn't parse"))
+        .map(|n| RstarNeuron::new(read_points(n), N_NEIGHBORS).expect("couldn't parse"))
         .collect();
     b.iter(|| {
         let mut arena = NblastArena::new(score_fn.clone(), false);

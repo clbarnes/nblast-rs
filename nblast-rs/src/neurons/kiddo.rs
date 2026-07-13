@@ -204,7 +204,7 @@ impl QueryNeuron for ApproxKiddoNeuron {
         &'a self,
         target: &'a impl TargetNeuron,
         use_alpha: bool,
-    ) -> impl Iterator<Item = DistDot> + '_ {
+    ) -> impl Iterator<Item = DistDot> + 'a {
         self.0.query_dist_dots(target, use_alpha)
     }
 

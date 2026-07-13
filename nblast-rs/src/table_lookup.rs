@@ -46,9 +46,9 @@ fn is_ascending<T: PartialOrd>(values: &[T], strict: bool) -> bool {
         .map(|w| w[1].partial_cmp(&w[0]))
         .all(|cmp| {
             if strict {
-                cmp.map_or(false, |c| c.is_gt())
+                cmp.is_some_and(|c| c.is_gt())
             } else {
-                cmp.map_or(false, |c| c.is_ge())
+                cmp.is_some_and(|c| c.is_ge())
             }
         })
 }

@@ -61,12 +61,12 @@ impl TryFrom<AnyNeuron> for super::rstar::RstarNeuron {
 }
 
 #[cfg(feature = "kiddo")]
-
 impl From<super::kiddo::KiddoNeuron> for AnyNeuron {
     fn from(value: super::kiddo::KiddoNeuron) -> Self {
         Self::Kiddo(value)
     }
 }
+
 #[cfg(feature = "kiddo")]
 impl TryFrom<AnyNeuron> for super::kiddo::KiddoNeuron {
     type Error = WrongNeuronType;
@@ -88,7 +88,6 @@ impl TryFrom<AnyNeuron> for super::kiddo::KiddoNeuron {
 }
 
 #[cfg(feature = "kiddo")]
-
 impl From<super::kiddo::ApproxKiddoNeuron> for AnyNeuron {
     fn from(value: super::kiddo::ApproxKiddoNeuron) -> Self {
         Self::ApproxKiddo(value)
@@ -116,7 +115,6 @@ impl TryFrom<AnyNeuron> for super::kiddo::ApproxKiddoNeuron {
 }
 
 #[cfg(feature = "bosque")]
-
 impl From<super::bosque::BosqueNeuron> for AnyNeuron {
     fn from(value: super::bosque::BosqueNeuron) -> Self {
         Self::Bosque(value)
