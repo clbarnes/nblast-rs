@@ -33,7 +33,10 @@ pub(crate) fn points_to_rtree_tangents_alphas(
         .map(|geom| {
             let p = geom.geom();
             TangentAlpha::new_from_points(
-                rtree.nearest_neighbor_iter(p).take(k).map(|pwd| pwd.geom()),
+                rtree
+                    .nearest_neighbor_iter(*p)
+                    .take(k)
+                    .map(|pwd| pwd.geom()),
             )
         })
         .collect();
@@ -168,7 +171,7 @@ impl TargetNeuron for RstarNeuron {
         alpha: Option<Precision>,
     ) -> DistDot {
         self.rtree
-            .nearest_neighbor(point)
+            .nearest_neighbor(*point)
             .map(|element| {
                 let ta = self.tangents_alphas[element.data];
                 let raw_dot = ta.tangent.dot(tangent).abs();
