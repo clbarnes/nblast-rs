@@ -32,6 +32,9 @@ rstar = { version = "0.13", optional = true }
 nabo = { version = "0.6", optional = true }
 kiddo = { version = "4.2.1", optional = true }
 bosque = { version = "0.2.0", optional = true }
+aann-graph = { version = "0.1.2", optional = true }
+shull = { version = "0.3.0", optional = true }
+ndarray = { version = "0.17.2", optional = true }
 
 [dev-dependencies]
 
@@ -45,6 +48,7 @@ default = ["kiddo"]
 
 parallel = ["rayon"]
 serde = ["dep:serde", "kiddo?/serialize", "rstar?/serde"]
+aann = ["dep:aann-graph", "dep:shull", "dep:ndarray"]
 
 [[bench]]
 

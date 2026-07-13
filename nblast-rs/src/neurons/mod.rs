@@ -5,6 +5,8 @@
 //! [Neuron] is a convenient type alias for our recommended backend given those available.
 use crate::{centroid, DistDot, Normal3, Point3, Precision, ScoreCalc};
 
+#[cfg(feature = "aann")]
+pub mod aann;
 #[cfg(feature = "bosque")]
 pub mod bosque;
 #[cfg(feature = "kiddo")]
